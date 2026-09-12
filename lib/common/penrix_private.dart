@@ -194,11 +194,7 @@ List<String> mergePenrixPrivateRules(
       ? routingRules!
       : existingRules;
   return _prependUnique(
-    buildPenrixPrivateRulePrefix(
-      config,
-      targetRules,
-      settings: settings,
-    ),
+    buildPenrixPrivateRulePrefix(config, targetRules, settings: settings),
     existingRules,
   );
 }
@@ -331,12 +327,12 @@ List<String> _privateRulePrefix(
     'DOMAIN-SUFFIX,uaa.com,DIRECT',
     'DOMAIN-SUFFIX,uaa002.com,DIRECT',
   ],
-  if (settings.adblock) 'RULE-SET,$penrixAdblockProviderName,REJECT',
   if (settings.twitter && proxyTarget != null) ..._twitterRules(proxyTarget),
   if (settings.telegram && proxyTarget != null) ..._telegramRules(proxyTarget),
   if (settings.github && proxyTarget != null) ..._githubRules(proxyTarget),
   if (settings.google && proxyTarget != null) ..._googleRules(proxyTarget),
   if (settings.pixiv && proxyTarget != null) ..._pixivRules(proxyTarget),
+  if (settings.adblock) 'RULE-SET,$penrixAdblockProviderName,REJECT',
   if (settings.privateSites && proxyTarget != null)
     ..._privateSiteRules(proxyTarget),
 ];
