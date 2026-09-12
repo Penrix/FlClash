@@ -23,6 +23,20 @@ const List<String> _chatGptTargetMarkers = [
   'oaistatsig',
 ];
 
+const List<String> _preferredProxyTargetNames = [
+  'PROXY',
+  'Proxy',
+  '节点选择',
+  '節點選擇',
+  '🚀 节点选择',
+  '🚀 節點選擇',
+  '代理',
+  '美国',
+  '美國',
+  '美国家宽',
+  '美國家寬',
+];
+
 class PenrixPrivateSettings {
   final bool chatGpt;
   final bool twitter;
@@ -134,6 +148,10 @@ Map<String, dynamic> buildPenrixPrivateNetworkConfig(
       ? routingRules!
       : existingRules;
   final proxyTarget = inferPenrixProxyTarget(config, targetRules);
+  final providerProxyTarget = inferPenrixProviderDownloadTarget(
+    config,
+    proxyTarget,
+  );
 
   final ruleProviders = <String, dynamic>{};
   final existingProviders = config['rule-providers'];
@@ -149,7 +167,7 @@ Map<String, dynamic> buildPenrixPrivateNetworkConfig(
       'format': 'mrs',
       'url': penrixAdblockProviderUrl,
       'interval': penrixAdblockUpdateInterval,
-      if (proxyTarget != null) 'proxy': proxyTarget,
+      if (providerProxyTarget != null) 'proxy': providerProxyTarget,
     };
   } else {
     ruleProviders.remove(penrixAdblockProviderName);
@@ -242,20 +260,7 @@ String? inferPenrixProxyTarget(
     if (usable(target)) return target!.trim();
   }
 
-  const preferredNames = [
-    'PROXY',
-    'Proxy',
-    '节点选择',
-    '節點選擇',
-    '🚀 节点选择',
-    '🚀 節點選擇',
-    '代理',
-    '美国',
-    '美國',
-    '美国家宽',
-    '美國家寬',
-  ];
-  for (final preferred in preferredNames) {
+  for (final preferred in _preferredProxyTargetNames) {
     if (availableTargets.contains(preferred)) return preferred;
   }
 
@@ -269,6 +274,50 @@ String? inferPenrixProxyTarget(
   if (selectorGroupNames.isNotEmpty) return selectorGroupNames.first;
   if (groupNames.isNotEmpty) return groupNames.first;
   if (proxyNames.isNotEmpty) return proxyNames.first;
+  return null;
+}
+
+String? inferPenrixProviderDownloadTarget(
+  Map<String, dynamic> config,
+  String? routeTarget,
+) {
+  final proxyNames = <String>{};
+  final rawProxies = config['proxies'];
+  if (rawProxies is List) {
+    for (final item in rawProxies) {
+      if (item is! Map) continue;
+      final name = item['name']?.toString().trim();
+      if (name != null && name.isNotEmpty) proxyNames.add(name);
+    }
+  }
+
+  final selectorNames = <String>[];
+  final groupTypes = <String, String>{};
+  final rawGroups = config['proxy-groups'];
+  if (rawGroups is List) {
+    for (final item in rawGroups) {
+      if (item is! Map) continue;
+      final name = item['name']?.toString().trim();
+      if (name == null || name.isEmpty) continue;
+      final type = item['type']?.toString().toLowerCase() ?? '';
+      groupTypes[name] = type;
+      if (type == 'select' || type == 'selector') {
+        selectorNames.add(name);
+      }
+    }
+  }
+
+  final target = routeTarget?.trim();
+  if (target != null && target.isNotEmpty) {
+    if (proxyNames.contains(target)) return target;
+    final type = groupTypes[target];
+    if (type == 'select' || type == 'selector') return target;
+  }
+
+  for (final preferred in _preferredProxyTargetNames) {
+    if (selectorNames.contains(preferred)) return preferred;
+  }
+  if (selectorNames.isNotEmpty) return selectorNames.first;
   return null;
 }
 
