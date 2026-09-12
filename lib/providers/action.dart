@@ -21,19 +21,26 @@ import 'package:path/path.dart' show basename;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// Private-build profile compiler.
-///
-/// Keep upstream profile generation intact, but always place the private
-/// application/site routing layer on top of whatever subscription is active.
-/// PROCESS-NAME rules require process matching, so the private build forces it
-/// on instead of depending on a profile or a forgotten UI toggle.
 Future<({String yaml, String md5})> makeRealProfileTask(
   MakeRealProfileState data,
 ) {
-  final privateConfig = buildPenrixPrivateNetworkConfig(data.rawConfig);
+  final customRuleValues = data.rules.map((rule) => rule.rawValue).toList();
+  final privateConfig = buildPenrixPrivateNetworkConfig(
+    data.rawConfig,
+    routingRules: customRuleValues,
+  );
+  final privateCustomRules = customRuleValues.isEmpty
+      ? data.rules
+      : mergePenrixPrivateRules(
+          privateConfig,
+          customRuleValues,
+          routingRules: customRuleValues,
+        ).map(Rule.parse).toList();
+
   return upstream_task.makeRealProfileTask(
     data.copyWith(
       rawConfig: privateConfig,
+      rules: privateCustomRules,
       realPatchConfig: data.realPatchConfig.copyWith(
         findProcessMode: FindProcessMode.always,
       ),
