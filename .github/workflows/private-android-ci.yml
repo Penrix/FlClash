@@ -64,8 +64,14 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Format private sources
-        run: dart format lib/common/penrix_private.dart lib/providers/action.dart lib/views/private_network.dart test/common/penrix_private_test.dart
+      - name: Check private source format
+        run: |
+          dart format --output=none --set-exit-if-changed \
+            lib/common/penrix_private.dart \
+            lib/providers/action.dart \
+            lib/views/private_network.dart \
+            test/common/penrix_private_test.dart \
+            test/common/penrix_private_provider_test.dart
 
       - name: Analyze
         run: flutter analyze --no-fatal-infos
@@ -75,7 +81,11 @@ jobs:
           yq -i '.hooks.user_defines.setup.build_assets = false | .hooks.user_defines.rust_api.build_assets = false' pubspec.yaml
 
       - name: Run private routing tests
-        run: flutter test test/common/penrix_private_test.dart --reporter expanded
+        run: |
+          flutter test \
+            test/common/penrix_private_test.dart \
+            test/common/penrix_private_provider_test.dart \
+            --reporter expanded
 
       - name: Restore native build hooks
         run: |
