@@ -87,7 +87,8 @@ class _PrivateNetworkViewState extends ConsumerState<PrivateNetworkView> {
     required PenrixPrivateSettings Function(
       PenrixPrivateSettings current,
       bool value,
-    ) update,
+    )
+    update,
   }) {
     return SwitchListTile(
       title: Text(title),
