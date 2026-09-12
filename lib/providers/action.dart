@@ -21,6 +21,19 @@ import 'package:path/path.dart' show basename;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+part 'actions/common.dart';
+part 'actions/setup.dart';
+part 'actions/backup.dart';
+part 'actions/core.dart';
+part 'actions/system.dart';
+part 'actions/store.dart';
+part 'actions/theme.dart';
+part 'actions/proxies.dart';
+part 'actions/profiles.dart';
+part 'actions/geo_resource.dart';
+part 'actions/updating.dart';
+part 'generated/action.g.dart';
+
 Future<({String yaml, String md5})> makeRealProfileTask(
   MakeRealProfileState data,
 ) async {
@@ -50,16 +63,3 @@ Future<({String yaml, String md5})> makeRealProfileTask(
     ),
   );
 }
-
-part 'actions/common.dart';
-part 'actions/setup.dart';
-part 'actions/backup.dart';
-part 'actions/core.dart';
-part 'actions/system.dart';
-part 'actions/store.dart';
-part 'actions/theme.dart';
-part 'actions/proxies.dart';
-part 'actions/profiles.dart';
-part 'actions/geo_resource.dart';
-part 'actions/updating.dart';
-part 'generated/action.g.dart';
