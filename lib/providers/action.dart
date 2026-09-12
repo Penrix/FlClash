@@ -94,7 +94,7 @@ Future<({String yaml, String md5})> makeRealProfileTask(
     ),
   );
 
-  if (!Platform.isAndroid) {
+  if (!Platform.isAndroid || !data.realPatchConfig.tun.enable) {
     return result;
   }
 
