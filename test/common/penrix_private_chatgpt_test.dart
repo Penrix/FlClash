@@ -15,15 +15,12 @@ void main() {
         {'name': 'Cox-US', 'type': 'ss'},
       ],
     };
-    final rules = buildPenrixPrivateRulePrefix(
-      config,
-      ['DOMAIN-SUFFIX,openai.com,Residential', 'MATCH,DIRECT'],
-    );
+    final rules = buildPenrixPrivateRulePrefix(config, [
+      'DOMAIN-SUFFIX,openai.com,Residential',
+      'MATCH,DIRECT',
+    ]);
 
-    expect(
-      rules,
-      contains('PROCESS-NAME,com.openai.chatgpt,Residential'),
-    );
+    expect(rules, contains('PROCESS-NAME,com.openai.chatgpt,Residential'));
     expect(rules, contains('PROCESS-NAME,ChatGPT.exe,Residential'));
     expect(rules, contains('DOMAIN,ws.chatgpt.com,Residential'));
     expect(rules, contains('DOMAIN,cdn.openaimerge.com,Residential'));
