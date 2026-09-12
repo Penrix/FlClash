@@ -70,10 +70,7 @@ void main() {
         ],
       };
 
-      expect(
-        inferPenrixProxyTarget(config, ['MATCH,Final']),
-        'Final',
-      );
+      expect(inferPenrixProxyTarget(config, ['MATCH,Final']), 'Final');
     });
 
     test('falls back to a selector and then a concrete proxy', () {
@@ -125,9 +122,7 @@ void main() {
       final windowsChatGptProcess = rules.indexOf(
         'PROCESS-NAME,ChatGPT.exe,Residential',
       );
-      final webSocket = rules.indexOf(
-        'DOMAIN,ws.chatgpt.com,Residential',
-      );
+      final webSocket = rules.indexOf('DOMAIN,ws.chatgpt.com,Residential');
       final adblock = rules.indexOf(
         'RULE-SET,$penrixAdblockProviderName,REJECT',
       );
@@ -156,26 +151,17 @@ void main() {
       };
       final config = buildPenrixPrivateNetworkConfig(
         rawConfig,
-        routingRules: [
-          'DOMAIN-SUFFIX,openai.com,Residential',
-          'MATCH,DIRECT',
-        ],
+        routingRules: ['DOMAIN-SUFFIX,openai.com,Residential', 'MATCH,DIRECT'],
         prependPrivateRules: false,
       );
       final addedRules = mergePenrixPrivateRules(
         config,
         ['DOMAIN-SUFFIX,example.com,DIRECT'],
-        routingRules: [
-          'DOMAIN-SUFFIX,openai.com,Residential',
-          'MATCH,DIRECT',
-        ],
+        routingRules: ['DOMAIN-SUFFIX,openai.com,Residential', 'MATCH,DIRECT'],
       );
 
       expect(config['rules'], ['MATCH,DIRECT']);
-      expect(
-        addedRules.first,
-        'PROCESS-NAME,com.openai.chatgpt,Residential',
-      );
+      expect(addedRules.first, 'PROCESS-NAME,com.openai.chatgpt,Residential');
       expect(
         addedRules.indexOf('DOMAIN-SUFFIX,example.com,DIRECT'),
         greaterThan(addedRules.indexOf('DOMAIN-SUFFIX,openai.com,Residential')),
@@ -241,10 +227,7 @@ void main() {
         'proxies': [
           {'name': 'Cox-US', 'type': 'ss'},
         ],
-        'rules': [
-          'DOMAIN-SUFFIX,github.com,Residential',
-          'MATCH,DIRECT',
-        ],
+        'rules': ['DOMAIN-SUFFIX,github.com,Residential', 'MATCH,DIRECT'],
       });
 
       final rules = List<String>.from(config['rules'] as List);
@@ -287,9 +270,7 @@ void main() {
         lessThan(merged.indexOf('MATCH,DIRECT')),
       );
       expect(
-        merged.where(
-          (rule) => rule == 'DOMAIN-SUFFIX,openai.com,Residential',
-        ),
+        merged.where((rule) => rule == 'DOMAIN-SUFFIX,openai.com,Residential'),
         hasLength(1),
       );
     });
@@ -306,26 +287,25 @@ void main() {
         privateSites: false,
         adblock: false,
       );
-      final config = buildPenrixPrivateNetworkConfig(
-        <String, dynamic>{
-          'proxy-groups': [
-            {
-              'name': 'Residential',
-              'type': 'select',
-              'proxies': ['Cox-US'],
-            },
-          ],
-          'proxies': [
-            {'name': 'Cox-US', 'type': 'ss'},
-          ],
-          'rules': ['MATCH,DIRECT'],
-        },
-        settings: settings,
-      );
+      final config = buildPenrixPrivateNetworkConfig(<String, dynamic>{
+        'proxy-groups': [
+          {
+            'name': 'Residential',
+            'type': 'select',
+            'proxies': ['Cox-US'],
+          },
+        ],
+        'proxies': [
+          {'name': 'Cox-US', 'type': 'ss'},
+        ],
+        'rules': ['MATCH,DIRECT'],
+      }, settings: settings);
 
       expect(config['rules'], ['MATCH,DIRECT']);
       expect(
-        (config['rule-providers'] as Map).containsKey(penrixAdblockProviderName),
+        (config['rule-providers'] as Map).containsKey(
+          penrixAdblockProviderName,
+        ),
         false,
       );
     });
@@ -339,7 +319,9 @@ void main() {
       expect(rules, contains('DOMAIN-SUFFIX,uaa.com,DIRECT'));
       expect(rules, contains('RULE-SET,$penrixAdblockProviderName,REJECT'));
       expect(
-        rules.any((rule) => rule.startsWith('PROCESS-NAME,com.openai.chatgpt,')),
+        rules.any(
+          (rule) => rule.startsWith('PROCESS-NAME,com.openai.chatgpt,'),
+        ),
         false,
       );
     });
