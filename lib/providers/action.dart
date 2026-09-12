@@ -50,6 +50,12 @@ Future<({String yaml, String md5})> makeRealProfileTask(
       : [...addedRuleValues, ...sourceRuleValues];
   final hasStandardAddedRules =
       customRuleValues.isEmpty && addedRuleValues.isNotEmpty;
+  final requiresProcessMatching =
+      settings.chatGpt ||
+      settings.twitter ||
+      settings.telegram ||
+      settings.github ||
+      settings.pixiv;
 
   final privateConfig = buildPenrixPrivateNetworkConfig(
     data.rawConfig,
@@ -80,7 +86,9 @@ Future<({String yaml, String md5})> makeRealProfileTask(
       rules: privateCustomRules,
       addedRules: privateAddedRules,
       realPatchConfig: data.realPatchConfig.copyWith(
-        findProcessMode: FindProcessMode.always,
+        findProcessMode: requiresProcessMatching
+            ? FindProcessMode.always
+            : data.realPatchConfig.findProcessMode,
       ),
     ),
   );
