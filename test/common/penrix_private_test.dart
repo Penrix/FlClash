@@ -156,6 +156,46 @@ void main() {
       );
     });
 
+    test('keeps the private layer above custom overwrite rules', () {
+      final rawConfig = <String, dynamic>{
+        'proxy-groups': [
+          {
+            'name': 'Residential',
+            'type': 'select',
+            'proxies': ['Cox-US'],
+          },
+        ],
+        'proxies': [
+          {'name': 'Cox-US', 'type': 'ss'},
+        ],
+      };
+      final customRules = [
+        'DOMAIN-SUFFIX,openai.com,Residential',
+        'MATCH,DIRECT',
+      ];
+      final config = buildPenrixPrivateNetworkConfig(
+        rawConfig,
+        routingRules: customRules,
+      );
+      final merged = mergePenrixPrivateRules(
+        config,
+        customRules,
+        routingRules: customRules,
+      );
+
+      expect(merged.first, 'PROCESS-NAME,com.openai.chatgpt,Residential');
+      expect(
+        merged.indexOf('RULE-SET,$penrixAdblockProviderName,REJECT'),
+        lessThan(merged.indexOf('MATCH,DIRECT')),
+      );
+      expect(
+        merged.where(
+          (rule) => rule == 'DOMAIN-SUFFIX,openai.com,Residential',
+        ),
+        hasLength(1),
+      );
+    });
+
     test('still enables direct UAA and adblocking without a proxy', () {
       final config = buildPenrixPrivateNetworkConfig(<String, dynamic>{
         'rules': ['MATCH,DIRECT'],
