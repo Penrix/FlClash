@@ -9,6 +9,7 @@ Current first-stage goals:
 - keep UAA on direct routing;
 - inject a Mihomo MRS ad/tracker rule provider;
 - preserve the private layer across standard, script, and custom profile overwrite modes;
-- expose persistent per-service toggles through the FlClash UI.
+- expose persistent per-service toggles through the FlClash UI;
+- build an arm64 debug APK through the dedicated private Android CI workflow.
 
 Real-device acceptance remains authoritative. A successful CI build is only an engineering gate, not proof that a site or app works correctly on-device.
