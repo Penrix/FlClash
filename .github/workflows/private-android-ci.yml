@@ -5,6 +5,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or commit to build
+        required: true
+        default: penrix-private-network
 
 concurrency:
   group: private-android-ci-${{ github.event.pull_request.number || github.ref }}
@@ -22,6 +27,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.pull_request.head.sha }}
           submodules: recursive
           fetch-depth: 0
 
