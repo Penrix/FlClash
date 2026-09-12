@@ -115,6 +115,16 @@ class VpnService : SystemVpnService(), ManagedService {
         return START_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Several OEM task managers kill the whole app process after the recent-task card is
+        // dismissed, even when a foreground VPN service is active. Put the recovery trigger in
+        // AlarmManager so it survives that process death and can rebuild the saved VPN state.
+        if (tunRunning) {
+            scheduleVpnTaskRemovalRecovery()
+        }
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onRevoke() {
         stop()
         notifyVpnRevoked()
@@ -256,6 +266,7 @@ class VpnService : SystemVpnService(), ManagedService {
             modules.start()
             handleStart(requireNotNull(ServiceConfig.vpnOptions) { "VPN options are missing" })
             markStartedAndSticky()
+            cancelVpnTaskRemovalRecovery()
         } catch (error: Exception) {
             stop()
             throw error
@@ -276,6 +287,7 @@ class VpnService : SystemVpnService(), ManagedService {
     }
 
     override fun stop() {
+        cancelVpnTaskRemovalRecovery()
         try {
             cleanup()
         } finally {
