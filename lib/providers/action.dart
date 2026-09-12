@@ -39,17 +39,38 @@ Future<({String yaml, String md5})> makeRealProfileTask(
 ) async {
   final settings = await loadPenrixPrivateSettings();
   final customRuleValues = data.rules.map((rule) => rule.rawValue).toList();
+  final addedRuleValues = data.addedRules.map((rule) => rule.rawValue).toList();
+  final sourceRuleValues = data.rawConfig['rules'] is List
+      ? (data.rawConfig['rules'] as List)
+            .map((rule) => rule.toString())
+            .toList()
+      : <String>[];
+  final routingRuleValues = customRuleValues.isNotEmpty
+      ? customRuleValues
+      : [...addedRuleValues, ...sourceRuleValues];
+  final hasStandardAddedRules =
+      customRuleValues.isEmpty && addedRuleValues.isNotEmpty;
+
   final privateConfig = buildPenrixPrivateNetworkConfig(
     data.rawConfig,
-    routingRules: customRuleValues,
+    routingRules: routingRuleValues,
     settings: settings,
+    prependPrivateRules: !hasStandardAddedRules,
   );
   final privateCustomRules = customRuleValues.isEmpty
       ? data.rules
       : mergePenrixPrivateRules(
           privateConfig,
           customRuleValues,
-          routingRules: customRuleValues,
+          routingRules: routingRuleValues,
+          settings: settings,
+        ).map((value) => Rule.parse(value)).toList();
+  final privateAddedRules = !hasStandardAddedRules
+      ? data.addedRules
+      : mergePenrixPrivateRules(
+          privateConfig,
+          addedRuleValues,
+          routingRules: routingRuleValues,
           settings: settings,
         ).map((value) => Rule.parse(value)).toList();
 
@@ -57,6 +78,7 @@ Future<({String yaml, String md5})> makeRealProfileTask(
     data.copyWith(
       rawConfig: privateConfig,
       rules: privateCustomRules,
+      addedRules: privateAddedRules,
       realPatchConfig: data.realPatchConfig.copyWith(
         findProcessMode: FindProcessMode.always,
       ),
