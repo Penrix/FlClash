@@ -105,10 +105,14 @@ class VpnService : SystemVpnService(), ManagedService {
         }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Android starts always-on VPN through this callback instead of FlClash's bound-service
-        // path. Notify the app layer so it can restore Core and fully initialize the VPN service.
-        notifyVpnStartRequested()
-        return super.onStartCommand(intent, flags, startId)
+        // Android starts Always-on VPN (and recreates START_STICKY services after a process kill)
+        // through this callback instead of FlClash's bound-service path. Re-enter the app state
+        // machine only for those system starts. A successful normal start marks this same service
+        // as started using ACTION_KEEP_ALIVE below and must not recursively start the profile.
+        if (intent?.action != ACTION_KEEP_ALIVE) {
+            notifyVpnStartRequested()
+        }
+        return START_STICKY
     }
 
     override fun onRevoke() {
@@ -251,10 +255,24 @@ class VpnService : SystemVpnService(), ManagedService {
         try {
             modules.start()
             handleStart(requireNotNull(ServiceConfig.vpnOptions) { "VPN options are missing" })
+            markStartedAndSticky()
         } catch (error: Exception) {
             stop()
             throw error
         }
+    }
+
+    /**
+     * The normal FlClash path creates this service through bindService(BIND_AUTO_CREATE). A bound
+     * foreground service is still allowed to die when its binding/process disappears. Once the
+     * notification and TUN are both alive, explicitly start the existing service as well so Android
+     * keeps it in the started state and can recreate it with START_STICKY after a process kill.
+     */
+    private fun markStartedAndSticky() {
+        val intent = Intent(this, VpnService::class.java).apply {
+            action = ACTION_KEEP_ALIVE
+        }
+        startService(intent)
     }
 
     override fun stop() {
@@ -285,6 +303,8 @@ class VpnService : SystemVpnService(), ManagedService {
     }
 
     companion object {
+        private const val ACTION_KEEP_ALIVE =
+            "com.follow.clash.service.intent.action.PENRIX_KEEP_ALIVE"
         private const val IPV4_ADDRESS = "172.19.0.1/30"
         private const val IPV6_ADDRESS = "fdfe:dcba:9876::1/126"
         private const val DNS = "172.19.0.2"
