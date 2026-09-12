@@ -15,14 +15,12 @@ const Set<String> _reservedTargets = {
   'PASS',
 };
 
-const List<String> _priorityServiceMarkers = [
+const List<String> _chatGptTargetMarkers = [
   'openai',
   'chatgpt',
-  'telegram',
-  'twitter',
-  'github',
-  'google',
-  'pixiv',
+  'oaistatic',
+  'oaiusercontent',
+  'oaistatsig',
 ];
 
 class PenrixPrivateSettings {
@@ -49,9 +47,8 @@ class PenrixPrivateSettings {
   });
 
   factory PenrixPrivateSettings.fromJson(Map<String, dynamic> json) {
-    bool read(String key, bool fallback) => json[key] is bool
-        ? json[key] as bool
-        : fallback;
+    bool read(String key, bool fallback) =>
+        json[key] is bool ? json[key] as bool : fallback;
     return PenrixPrivateSettings(
       chatGpt: read('chatGpt', true),
       twitter: read('twitter', true),
@@ -129,6 +126,7 @@ Map<String, dynamic> buildPenrixPrivateNetworkConfig(
   Map<String, dynamic> source, {
   List<String>? routingRules,
   PenrixPrivateSettings settings = const PenrixPrivateSettings(),
+  bool prependPrivateRules = true,
 }) {
   final config = Map<String, dynamic>.from(source);
   final existingRules = _asStringList(config['rules']);
@@ -157,12 +155,14 @@ Map<String, dynamic> buildPenrixPrivateNetworkConfig(
     ruleProviders.remove(penrixAdblockProviderName);
   }
   config['rule-providers'] = ruleProviders;
-  config['rules'] = mergePenrixPrivateRules(
-    config,
-    existingRules,
-    routingRules: targetRules,
-    settings: settings,
-  );
+  config['rules'] = prependPrivateRules
+      ? mergePenrixPrivateRules(
+          config,
+          existingRules,
+          routingRules: targetRules,
+          settings: settings,
+        )
+      : existingRules;
   return config;
 }
 
@@ -175,11 +175,23 @@ List<String> mergePenrixPrivateRules(
   final targetRules = routingRules?.isNotEmpty == true
       ? routingRules!
       : existingRules;
-  final proxyTarget = inferPenrixProxyTarget(config, targetRules);
   return _prependUnique(
-    _privateRulePrefix(proxyTarget, settings),
+    buildPenrixPrivateRulePrefix(
+      config,
+      targetRules,
+      settings: settings,
+    ),
     existingRules,
   );
+}
+
+List<String> buildPenrixPrivateRulePrefix(
+  Map<String, dynamic> config,
+  List<String> routingRules, {
+  PenrixPrivateSettings settings = const PenrixPrivateSettings(),
+}) {
+  final proxyTarget = inferPenrixProxyTarget(config, routingRules);
+  return _privateRulePrefix(proxyTarget, settings);
 }
 
 String? inferPenrixProxyTarget(
@@ -225,7 +237,7 @@ String? inferPenrixProxyTarget(
 
   for (final rawRule in rules) {
     final lower = rawRule.toLowerCase();
-    if (!_priorityServiceMarkers.any(lower.contains)) continue;
+    if (!_chatGptTargetMarkers.any(lower.contains)) continue;
     final target = _simpleRuleTarget(rawRule);
     if (usable(target)) return target!.trim();
   }
@@ -245,6 +257,13 @@ String? inferPenrixProxyTarget(
   ];
   for (final preferred in preferredNames) {
     if (availableTargets.contains(preferred)) return preferred;
+  }
+
+  for (final rawRule in rules.reversed) {
+    final parts = rawRule.split(',').map((item) => item.trim()).toList();
+    if (parts.isEmpty || parts.first.toUpperCase() != 'MATCH') continue;
+    final target = _simpleRuleTarget(rawRule);
+    if (usable(target)) return target!.trim();
   }
 
   if (selectorGroupNames.isNotEmpty) return selectorGroupNames.first;
@@ -275,6 +294,8 @@ List<String> _privateRulePrefix(
 
 List<String> _chatGptCriticalRules(String target) => [
   'PROCESS-NAME,com.openai.chatgpt,$target',
+  'PROCESS-NAME,ChatGPT.exe,$target',
+  'PROCESS-NAME,ChatGPT,$target',
   'DOMAIN,ws.chatgpt.com,$target',
   'DOMAIN-SUFFIX,chatgpt.com,$target',
   'DOMAIN-SUFFIX,openai.com,$target',
