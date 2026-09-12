@@ -98,17 +98,20 @@ jobs:
           git checkout -- pubspec.yaml
           flutter pub get
 
-      - name: Prepare build environment
-        run: printf '%s\n' '{"APP_ENV":"dev"}' > env.json
+      - name: Prepare private release environment
+        run: printf '%s\n' '{"APP_ENV":"stable"}' > env.json
 
-      - name: Build private Android debug APK
+      - name: Build Penrix Android release APK
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
-        run: flutter build apk --debug --target-platform android-arm64 --dart-define-from-file=env.json
+        run: flutter build apk --release --target-platform android-arm64 --dart-define-from-file=env.json
 
-      - name: Upload private APK
+      - name: Stage Penrix APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk Penrix.apk
+
+      - name: Upload Penrix APK
         uses: actions/upload-artifact@v4
         with:
-          name: penrix-flclash-private-android-debug
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: Penrix
+          path: Penrix.apk
           if-no-files-found: error
