@@ -42,10 +42,7 @@ void main() {
         ],
       };
 
-      expect(
-        inferPenrixProviderDownloadTarget(config, 'Auto'),
-        '节点选择',
-      );
+      expect(inferPenrixProviderDownloadTarget(config, 'Auto'), '节点选择');
     });
 
     test('omits provider proxy when only an unsafe group exists', () {
