@@ -6,6 +6,7 @@ import android.os.PowerManager
 import androidx.core.content.getSystemService
 import com.follow.clash.common.receiveBroadcastFlow
 import com.follow.clash.core.Core
+import com.follow.clash.service.VpnHealthSignalSink
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
@@ -15,6 +16,8 @@ internal class SuspendModule(
     private val service: Service,
     private val scope: CoroutineScope,
 ) : ServiceModule {
+    private var lastSuspended: Boolean? = null
+
     private fun isScreenOn() =
         service.getSystemService<PowerManager>()?.isInteractive ?: true
 
@@ -22,7 +25,12 @@ internal class SuspendModule(
         get() = service.getSystemService<PowerManager>()?.isDeviceIdleMode ?: true
 
     private fun updateSuspension(screenOn: Boolean) {
-        Core.suspended(!screenOn && isDeviceIdle)
+        val suspended = !screenOn && isDeviceIdle
+        Core.suspended(suspended)
+        if (lastSuspended != suspended) {
+            lastSuspended = suspended
+            (service as? VpnHealthSignalSink)?.onDeviceSuspensionChanged(suspended)
+        }
     }
 
     override fun start() {
@@ -42,6 +50,8 @@ internal class SuspendModule(
     }
 
     override fun stop() {
+        lastSuspended = false
         Core.suspended(false)
+        (service as? VpnHealthSignalSink)?.onDeviceSuspensionChanged(false)
     }
 }

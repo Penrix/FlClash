@@ -23,15 +23,28 @@ import java.net.InetSocketAddress
 import java.util.concurrent.ConcurrentHashMap
 import android.net.VpnService as SystemVpnService
 
-class VpnService : SystemVpnService(), ManagedService {
+class VpnService : SystemVpnService(), ManagedService, VpnHealthSignalSink {
     private val modules = ServiceModules(this)
     private val binder = LocalBinder()
+    private val lifecycleLock = Any()
     private val tunLock = Any()
     private var tunRunning = false
+    private var healthMonitor: VpnConnectionHealth? = null
+
+    @Volatile
+    private var healthUnderlyingValidated = false
+
+    @Volatile
+    private var healthUnderlyingDescription = "none"
+
+    @Volatile
+    private var healthDeviceSuspended = false
 
     override fun onDestroy() {
         try {
-            cleanup()
+            synchronized(lifecycleLock) {
+                cleanup()
+            }
         } finally {
             super.onDestroy()
         }
@@ -106,23 +119,13 @@ class VpnService : SystemVpnService(), ManagedService {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Android starts Always-on VPN (and recreates START_STICKY services after a process kill)
-        // through this callback instead of FlClash's bound-service path. Re-enter the app state
+        // through this callback instead of Penrix's bound-service path. Re-enter the app state
         // machine only for those system starts. A successful normal start marks this same service
         // as started using ACTION_KEEP_ALIVE below and must not recursively start the profile.
         if (intent?.action != ACTION_KEEP_ALIVE) {
             notifyVpnStartRequested()
         }
         return START_STICKY
-    }
-
-    override fun onTaskRemoved(rootIntent: Intent?) {
-        // Several OEM task managers kill the whole app process after the recent-task card is
-        // dismissed, even when a foreground VPN service is active. Put the recovery trigger in
-        // AlarmManager so it survives that process death and can rebuild the saved VPN state.
-        if (tunRunning) {
-            scheduleVpnTaskRemovalRecovery()
-        }
-        super.onTaskRemoved(rootIntent)
     }
 
     override fun onRevoke() {
@@ -261,20 +264,21 @@ class VpnService : SystemVpnService(), ManagedService {
         }
     }
 
-    override fun start() {
+    override fun start() = synchronized(lifecycleLock) {
         try {
             modules.start()
             handleStart(requireNotNull(ServiceConfig.vpnOptions) { "VPN options are missing" })
             markStartedAndSticky()
-            cancelVpnTaskRemovalRecovery()
+            startHealthMonitor()
         } catch (error: Exception) {
-            stop()
+            cleanup()
+            stopSelf()
             throw error
         }
     }
 
     /**
-     * The normal FlClash path creates this service through bindService(BIND_AUTO_CREATE). A bound
+     * The normal Penrix path creates this service through bindService(BIND_AUTO_CREATE). A bound
      * foreground service is still allowed to die when its binding/process disappears. Once the
      * notification and TUN are both alive, explicitly start the existing service as well so Android
      * keeps it in the started state and can recreate it with START_STICKY after a process kill.
@@ -286,8 +290,49 @@ class VpnService : SystemVpnService(), ManagedService {
         startService(intent)
     }
 
-    override fun stop() {
-        cancelVpnTaskRemovalRecovery()
+    private fun startHealthMonitor() {
+        healthMonitor?.stop()
+        healthMonitor = VpnConnectionHealth(this).also { monitor ->
+            monitor.start(
+                validated = healthUnderlyingValidated,
+                description = healthUnderlyingDescription,
+                suspended = healthDeviceSuspended,
+            )
+        }
+    }
+
+    override fun onUnderlyingNetworkChanged(validated: Boolean, description: String) {
+        healthUnderlyingValidated = validated
+        healthUnderlyingDescription = description
+        healthMonitor?.onUnderlyingNetworkChanged(validated, description)
+    }
+
+    override fun onDeviceSuspensionChanged(suspended: Boolean) {
+        healthDeviceSuspended = suspended
+        healthMonitor?.onDeviceSuspensionChanged(suspended)
+    }
+
+    internal fun isTunnelRunningForHealth(): Boolean = synchronized(tunLock) {
+        tunRunning
+    }
+
+    internal fun rebuildTunnelForHealth(): Boolean = synchronized(lifecycleLock) {
+        if (!isTunnelRunningForHealth()) {
+            return@synchronized false
+        }
+        val options = ServiceConfig.vpnOptions ?: return@synchronized false
+        runCatching {
+            GlobalState.log("VPN health: local TUN rebuild started")
+            stopTun()
+            handleStart(options)
+            GlobalState.log("VPN health: local TUN rebuild completed")
+            true
+        }.onFailure { error ->
+            GlobalState.log("VPN health: local TUN rebuild error: $error")
+        }.getOrDefault(false)
+    }
+
+    override fun stop() = synchronized(lifecycleLock) {
         try {
             cleanup()
         } finally {
@@ -296,6 +341,8 @@ class VpnService : SystemVpnService(), ManagedService {
     }
 
     private fun cleanup() {
+        healthMonitor?.stop()
+        healthMonitor = null
         try {
             modules.stop()
         } finally {
