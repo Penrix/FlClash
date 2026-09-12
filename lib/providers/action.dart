@@ -35,7 +35,7 @@ Future<({String yaml, String md5})> makeRealProfileTask(
           privateConfig,
           customRuleValues,
           routingRules: customRuleValues,
-        ).map(Rule.parse).toList();
+        ).map((value) => Rule.parse(value)).toList();
 
   return upstream_task.makeRealProfileTask(
     data.copyWith(
