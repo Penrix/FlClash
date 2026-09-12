@@ -23,11 +23,13 @@ import 'package:url_launcher/url_launcher.dart';
 
 Future<({String yaml, String md5})> makeRealProfileTask(
   MakeRealProfileState data,
-) {
+) async {
+  final settings = await loadPenrixPrivateSettings();
   final customRuleValues = data.rules.map((rule) => rule.rawValue).toList();
   final privateConfig = buildPenrixPrivateNetworkConfig(
     data.rawConfig,
     routingRules: customRuleValues,
+    settings: settings,
   );
   final privateCustomRules = customRuleValues.isEmpty
       ? data.rules
@@ -35,6 +37,7 @@ Future<({String yaml, String md5})> makeRealProfileTask(
           privateConfig,
           customRuleValues,
           routingRules: customRuleValues,
+          settings: settings,
         ).map((value) => Rule.parse(value)).toList();
 
   return upstream_task.makeRealProfileTask(
