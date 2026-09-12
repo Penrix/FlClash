@@ -72,6 +72,7 @@ jobs:
             lib/views/private_network.dart
             test/common/penrix_private_test.dart
             test/common/penrix_private_provider_test.dart
+            test/common/penrix_private_chatgpt_test.dart
           )
           dart format "${files[@]}"
           git diff -- "${files[@]}"
@@ -89,6 +90,7 @@ jobs:
           flutter test \
             test/common/penrix_private_test.dart \
             test/common/penrix_private_provider_test.dart \
+            test/common/penrix_private_chatgpt_test.dart \
             --reporter expanded
 
       - name: Restore native build hooks
