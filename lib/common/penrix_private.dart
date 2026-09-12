@@ -351,6 +351,21 @@ List<String> _chatGptCriticalRules(String target) => [
   'DOMAIN-SUFFIX,oaistatic.com,$target',
   'DOMAIN-SUFFIX,oaiusercontent.com,$target',
   'DOMAIN-SUFFIX,oaistatsig.com,$target',
+  'DOMAIN-SUFFIX,ct.sendgrid.net,$target',
+  'DOMAIN-SUFFIX,intercom.io,$target',
+  'DOMAIN-SUFFIX,intercomcdn.com,$target',
+  'DOMAIN,cdn.openaimerge.com,$target',
+  'DOMAIN,cdn.workos.com,$target',
+  'DOMAIN,challenges.cloudflare.com,$target',
+  'DOMAIN,forwarder.workos.com,$target',
+  'DOMAIN,humb.apple.com,$target',
+  'DOMAIN,images.workoscdn.com,$target',
+  'DOMAIN,js.stripe.com,$target',
+  'DOMAIN,o207216.ingest.sentry.io,$target',
+  'DOMAIN,o33249.ingest.sentry.io,$target',
+  'DOMAIN,rum.browser-intake-datadoghq.com,$target',
+  'DOMAIN,setup.workos.com,$target',
+  'DOMAIN,workos.imgix.net,$target',
 ];
 
 List<String> _twitterRules(String target) => [
