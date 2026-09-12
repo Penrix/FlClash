@@ -20,15 +20,16 @@ const List<String> _priorityServiceMarkers = [
   'pixiv',
 ];
 
-/// Applies the always-on private networking layer used by Penrix's FlClash
-/// build. The subscription remains the source of proxies and groups; this
-/// layer only makes critical application routing and filtering deterministic.
 Map<String, dynamic> buildPenrixPrivateNetworkConfig(
-  Map<String, dynamic> source,
-) {
+  Map<String, dynamic> source, {
+  List<String>? routingRules,
+}) {
   final config = Map<String, dynamic>.from(source);
   final existingRules = _asStringList(config['rules']);
-  final proxyTarget = inferPenrixProxyTarget(config, existingRules);
+  final targetRules = routingRules?.isNotEmpty == true
+      ? routingRules!
+      : existingRules;
+  final proxyTarget = inferPenrixProxyTarget(config, targetRules);
 
   final ruleProviders = <String, dynamic>{};
   final existingProviders = config['rule-providers'];
@@ -46,32 +47,29 @@ Map<String, dynamic> buildPenrixPrivateNetworkConfig(
     if (proxyTarget != null) 'proxy': proxyTarget,
   };
   config['rule-providers'] = ruleProviders;
-
-  final privateRules = <String>[
-    if (proxyTarget != null) ..._chatGptCriticalRules(proxyTarget),
-
-    // UAA has been observed to authenticate successfully when direct while
-    // failing through the residential-US proxy. Keep its own endpoints direct
-    // before generic filtering or foreign-site forcing rules.
-    'DOMAIN-SUFFIX,uaa.com,DIRECT',
-    'DOMAIN-SUFFIX,uaa002.com,DIRECT',
-
-    // Network-layer ad/tracker blocking for the whole device. Site-specific
-    // cosmetic cleanup still belongs to the consuming app/WebView.
-    'RULE-SET,$penrixAdblockProviderName,REJECT',
-
-    if (proxyTarget != null) ..._commonAppRules(proxyTarget),
-    if (proxyTarget != null) ..._privateSiteRules(proxyTarget),
-  ];
-
-  config['rules'] = _prependUnique(privateRules, existingRules);
+  config['rules'] = mergePenrixPrivateRules(
+    config,
+    existingRules,
+    routingRules: targetRules,
+  );
   return config;
 }
 
-/// Finds a stable proxy target from the user's subscription rather than
-/// assuming a group is literally named `PROXY`. The user's existing rules get
-/// first say, then common selector names, then the first selectable group or
-/// concrete proxy.
+List<String> mergePenrixPrivateRules(
+  Map<String, dynamic> config,
+  List<String> existingRules, {
+  List<String>? routingRules,
+}) {
+  final targetRules = routingRules?.isNotEmpty == true
+      ? routingRules!
+      : existingRules;
+  final proxyTarget = inferPenrixProxyTarget(config, targetRules);
+  return _prependUnique(
+    _privateRulePrefix(proxyTarget),
+    existingRules,
+  );
+}
+
 String? inferPenrixProxyTarget(
   Map<String, dynamic> config,
   List<String> rules,
@@ -113,8 +111,6 @@ String? inferPenrixProxyTarget(
     return availableTargets.contains(value);
   }
 
-  // Prefer the target that the existing subscription already uses for one of
-  // the user's overseas services. This preserves the user's chosen selector.
   for (final rawRule in rules) {
     final lower = rawRule.toLowerCase();
     if (!_priorityServiceMarkers.any(lower.contains)) continue;
@@ -145,9 +141,16 @@ String? inferPenrixProxyTarget(
   return null;
 }
 
+List<String> _privateRulePrefix(String? proxyTarget) => [
+  if (proxyTarget != null) ..._chatGptCriticalRules(proxyTarget),
+  'DOMAIN-SUFFIX,uaa.com,DIRECT',
+  'DOMAIN-SUFFIX,uaa002.com,DIRECT',
+  'RULE-SET,$penrixAdblockProviderName,REJECT',
+  if (proxyTarget != null) ..._commonAppRules(proxyTarget),
+  if (proxyTarget != null) ..._privateSiteRules(proxyTarget),
+];
+
 List<String> _chatGptCriticalRules(String target) => [
-  // Mihomo PROCESS-NAME matches Android package names. This is deliberately
-  // first so a future ChatGPT endpoint cannot silently fall through to DIRECT.
   'PROCESS-NAME,com.openai.chatgpt,$target',
   'DOMAIN,ws.chatgpt.com,$target',
   'DOMAIN-SUFFIX,chatgpt.com,$target',
@@ -158,44 +161,33 @@ List<String> _chatGptCriticalRules(String target) => [
 ];
 
 List<String> _commonAppRules(String target) => [
-  // Twitter / X
   'PROCESS-NAME,com.twitter.android,$target',
   'DOMAIN-SUFFIX,x.com,$target',
   'DOMAIN-SUFFIX,twitter.com,$target',
   'DOMAIN-SUFFIX,twimg.com,$target',
   'DOMAIN-SUFFIX,t.co,$target',
-
-  // Telegram
   'PROCESS-NAME,org.telegram.messenger,$target',
   'PROCESS-NAME,org.telegram.messenger.web,$target',
   'DOMAIN-SUFFIX,telegram.org,$target',
   'DOMAIN-SUFFIX,t.me,$target',
   'DOMAIN-SUFFIX,telegra.ph,$target',
-
-  // GitHub
   'PROCESS-NAME,com.github.android,$target',
   'DOMAIN-SUFFIX,github.com,$target',
   'DOMAIN-SUFFIX,githubusercontent.com,$target',
   'DOMAIN-SUFFIX,githubassets.com,$target',
   'DOMAIN-SUFFIX,github.io,$target',
-
-  // Google family. Keep this domain-based rather than forcing every
-  // com.google.* Android process through the proxy.
   'DOMAIN-SUFFIX,google.com,$target',
   'DOMAIN-SUFFIX,googleapis.com,$target',
   'DOMAIN-SUFFIX,gstatic.com,$target',
   'DOMAIN-SUFFIX,googleusercontent.com,$target',
   'DOMAIN-SUFFIX,googlevideo.com,$target',
   'DOMAIN-SUFFIX,ytimg.com,$target',
-
-  // Pixiv
   'PROCESS-NAME,jp.pxv.android,$target',
   'DOMAIN-SUFFIX,pixiv.net,$target',
   'DOMAIN-SUFFIX,pximg.net,$target',
 ];
 
 List<String> _privateSiteRules(String target) => [
-  // Video / adult sites currently used by the private Sigma build.
   'DOMAIN-SUFFIX,pornhub.com,$target',
   'DOMAIN-SUFFIX,phncdn.com,$target',
   'DOMAIN-SUFFIX,xvideos.com,$target',
@@ -205,8 +197,6 @@ List<String> _privateSiteRules(String target) => [
   'DOMAIN-SUFFIX,hanime1.me,$target',
   'DOMAIN-SUFFIX,cool18.com,$target',
   'DOMAIN-SUFFIX,theporndude.com,$target',
-
-  // Novel / forum sites currently used by the private Sigma build.
   'DOMAIN-SUFFIX,twkan.com,$target',
   'DOMAIN-SUFFIX,69shuba.com,$target',
   'DOMAIN-SUFFIX,uukanshu.cc,$target',
