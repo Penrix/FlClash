@@ -12,4 +12,6 @@ Current first-stage goals:
 - expose persistent per-service toggles through the FlClash UI;
 - build an arm64 debug APK through the dedicated private Android CI workflow.
 
+The private Android workflow formats the private Dart sources before analysis and build so APK validation is not blocked by whitespace-only drift. The upstream build workflow remains the stricter repository-wide formatting gate.
+
 Real-device acceptance remains authoritative. A successful CI build is only an engineering gate, not proof that a site or app works correctly on-device.
