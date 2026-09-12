@@ -100,7 +100,7 @@ const ruleListEquality = ListEquality<Rule>();
 const scriptListEquality = ListEquality<Script>();
 const profileListEquality = ListEquality<Profile>();
 const proxyGroupsEquality = ListEquality<ProxyGroup>();
-const hotKeyActionListEquality = SetEquality<HotKeyAction>();
+const hotKeyActionListEquality = ListEquality<HotKeyAction>();
 const stringAndStringMapEntryListEquality =
     ListEquality<MapEntry<String, String>>();
 const keyboardModifierListEquality = SetEquality<KeyboardModifier>();
