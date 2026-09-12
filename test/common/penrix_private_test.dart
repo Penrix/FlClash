@@ -196,6 +196,42 @@ void main() {
       );
     });
 
+    test('service switches remove their owned rules and provider', () {
+      const settings = PenrixPrivateSettings(
+        chatGpt: false,
+        twitter: false,
+        telegram: false,
+        github: false,
+        google: false,
+        pixiv: false,
+        uaaDirect: false,
+        privateSites: false,
+        adblock: false,
+      );
+      final config = buildPenrixPrivateNetworkConfig(
+        <String, dynamic>{
+          'proxy-groups': [
+            {
+              'name': 'Residential',
+              'type': 'select',
+              'proxies': ['Cox-US'],
+            },
+          ],
+          'proxies': [
+            {'name': 'Cox-US', 'type': 'ss'},
+          ],
+          'rules': ['MATCH,DIRECT'],
+        },
+        settings: settings,
+      );
+
+      expect(config['rules'], ['MATCH,DIRECT']);
+      expect(
+        (config['rule-providers'] as Map).containsKey(penrixAdblockProviderName),
+        false,
+      );
+    });
+
     test('still enables direct UAA and adblocking without a proxy', () {
       final config = buildPenrixPrivateNetworkConfig(<String, dynamic>{
         'rules': ['MATCH,DIRECT'],
