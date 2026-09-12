@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:fl_clash/common/boot_guard.dart';
 import 'package:fl_clash/common/common.dart' hide makeRealProfileTask;
+import 'package:fl_clash/common/penrix_android_dns.dart';
 import 'package:fl_clash/common/penrix_private.dart';
 import 'package:fl_clash/common/system_dns.dart';
 import 'package:fl_clash/common/task.dart' as upstream_task;
@@ -80,7 +81,7 @@ Future<({String yaml, String md5})> makeRealProfileTask(
           settings: settings,
         ).map((value) => Rule.parse(value)).toList();
 
-  return upstream_task.makeRealProfileTask(
+  final result = await upstream_task.makeRealProfileTask(
     data.copyWith(
       rawConfig: privateConfig,
       rules: privateCustomRules,
@@ -92,4 +93,14 @@ Future<({String yaml, String md5})> makeRealProfileTask(
       ),
     ),
   );
+
+  if (!Platform.isAndroid) {
+    return result;
+  }
+
+  final sanitizedYaml = stripExternalDnsListenFromYaml(result.yaml);
+  if (sanitizedYaml == result.yaml) {
+    return result;
+  }
+  return (yaml: sanitizedYaml, md5: sanitizedYaml.toMd5());
 }
