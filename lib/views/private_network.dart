@@ -14,6 +14,7 @@ class PrivateNetworkView extends ConsumerStatefulWidget {
 class _PrivateNetworkViewState extends ConsumerState<PrivateNetworkView> {
   PenrixPrivateSettings? _settings;
   bool _applying = false;
+  String? _applyError;
 
   @override
   void initState() {
@@ -36,13 +37,40 @@ class _PrivateNetworkViewState extends ConsumerState<PrivateNetworkView> {
     setState(() {
       _settings = next;
       _applying = true;
+      _applyError = null;
     });
+
     try {
       await savePenrixPrivateSettings(next);
-      await ref.read(setupActionProvider.notifier).applyProfile(force: true);
+      final applied = await ref
+          .read(setupActionProvider.notifier)
+          .applyProfile(force: true);
+      if (applied) return;
+      await _rollback(current);
+    } catch (_) {
+      await _rollback(current);
     } finally {
       if (mounted) setState(() => _applying = false);
     }
+  }
+
+  Future<void> _rollback(PenrixPrivateSettings previous) async {
+    var restored = false;
+    try {
+      await savePenrixPrivateSettings(previous);
+      restored = await ref
+          .read(setupActionProvider.notifier)
+          .applyProfile(force: true);
+    } catch (_) {
+      restored = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _settings = previous;
+      _applyError = restored
+          ? '应用失败，已恢复原设置。'
+          : '应用失败；原设置已恢复，但核心重新应用失败，请重新应用当前配置。';
+    });
   }
 
   Widget _section(String title) {
@@ -86,6 +114,14 @@ class _PrivateNetworkViewState extends ConsumerState<PrivateNetworkView> {
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
+          if (_applyError != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: Text(
+                _applyError!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
           _section('关键工具'),
           _toggle(
             title: 'ChatGPT · 关键',
@@ -108,7 +144,7 @@ class _PrivateNetworkViewState extends ConsumerState<PrivateNetworkView> {
           ),
           _toggle(
             title: 'GitHub',
-            subtitle: 'GitHub App、API、静态资源和usercontent保持代理',
+            subtitle: 'GitHub App、API、静态资源和 usercontent 保持代理',
             value: settings.github,
             update: (current, value) => current.copyWith(github: value),
           ),
