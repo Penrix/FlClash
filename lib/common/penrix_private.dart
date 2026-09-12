@@ -409,6 +409,7 @@ List<String> _privateSiteRules(String target) => [
   'DOMAIN-SUFFIX,xvideos.com,$target',
   'DOMAIN-SUFFIX,xvideos-cdn.com,$target',
   'DOMAIN-SUFFIX,xv-cdn.com,$target',
+  'DOMAIN-SUFFIX,viralporn.com,$target',
   'DOMAIN-KEYWORD,missav,$target',
   'DOMAIN-SUFFIX,hanime1.me,$target',
   'DOMAIN-SUFFIX,cool18.com,$target',
