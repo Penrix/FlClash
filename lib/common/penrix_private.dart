@@ -1,7 +1,12 @@
+import 'dart:convert';
+
+import 'package:shared_preferences/shared_preferences.dart';
+
 const String penrixAdblockProviderName = 'penrix-adblock';
 const String penrixAdblockProviderUrl =
     'https://raw.githubusercontent.com/217heidai/adblockfilters/main/rules/adblockmihomo.mrs';
 const int penrixAdblockUpdateInterval = 28800;
+const String penrixPrivateSettingsKey = 'penrix.private.network.settings.v1';
 
 const Set<String> _reservedTargets = {
   'DIRECT',
@@ -20,9 +25,110 @@ const List<String> _priorityServiceMarkers = [
   'pixiv',
 ];
 
+class PenrixPrivateSettings {
+  final bool chatGpt;
+  final bool twitter;
+  final bool telegram;
+  final bool github;
+  final bool google;
+  final bool pixiv;
+  final bool uaaDirect;
+  final bool privateSites;
+  final bool adblock;
+
+  const PenrixPrivateSettings({
+    this.chatGpt = true,
+    this.twitter = true,
+    this.telegram = true,
+    this.github = true,
+    this.google = true,
+    this.pixiv = true,
+    this.uaaDirect = true,
+    this.privateSites = true,
+    this.adblock = true,
+  });
+
+  factory PenrixPrivateSettings.fromJson(Map<String, dynamic> json) {
+    bool read(String key, bool fallback) => json[key] is bool
+        ? json[key] as bool
+        : fallback;
+    return PenrixPrivateSettings(
+      chatGpt: read('chatGpt', true),
+      twitter: read('twitter', true),
+      telegram: read('telegram', true),
+      github: read('github', true),
+      google: read('google', true),
+      pixiv: read('pixiv', true),
+      uaaDirect: read('uaaDirect', true),
+      privateSites: read('privateSites', true),
+      adblock: read('adblock', true),
+    );
+  }
+
+  Map<String, bool> toJson() => {
+    'chatGpt': chatGpt,
+    'twitter': twitter,
+    'telegram': telegram,
+    'github': github,
+    'google': google,
+    'pixiv': pixiv,
+    'uaaDirect': uaaDirect,
+    'privateSites': privateSites,
+    'adblock': adblock,
+  };
+
+  PenrixPrivateSettings copyWith({
+    bool? chatGpt,
+    bool? twitter,
+    bool? telegram,
+    bool? github,
+    bool? google,
+    bool? pixiv,
+    bool? uaaDirect,
+    bool? privateSites,
+    bool? adblock,
+  }) {
+    return PenrixPrivateSettings(
+      chatGpt: chatGpt ?? this.chatGpt,
+      twitter: twitter ?? this.twitter,
+      telegram: telegram ?? this.telegram,
+      github: github ?? this.github,
+      google: google ?? this.google,
+      pixiv: pixiv ?? this.pixiv,
+      uaaDirect: uaaDirect ?? this.uaaDirect,
+      privateSites: privateSites ?? this.privateSites,
+      adblock: adblock ?? this.adblock,
+    );
+  }
+}
+
+Future<PenrixPrivateSettings> loadPenrixPrivateSettings() async {
+  try {
+    final preferences = await SharedPreferences.getInstance();
+    final raw = preferences.getString(penrixPrivateSettingsKey);
+    if (raw == null || raw.isEmpty) return const PenrixPrivateSettings();
+    final decoded = json.decode(raw);
+    if (decoded is! Map) return const PenrixPrivateSettings();
+    return PenrixPrivateSettings.fromJson(
+      decoded.map((key, value) => MapEntry(key.toString(), value)),
+    );
+  } catch (_) {
+    return const PenrixPrivateSettings();
+  }
+}
+
+Future<void> savePenrixPrivateSettings(PenrixPrivateSettings settings) async {
+  final preferences = await SharedPreferences.getInstance();
+  await preferences.setString(
+    penrixPrivateSettingsKey,
+    json.encode(settings.toJson()),
+  );
+}
+
 Map<String, dynamic> buildPenrixPrivateNetworkConfig(
   Map<String, dynamic> source, {
   List<String>? routingRules,
+  PenrixPrivateSettings settings = const PenrixPrivateSettings(),
 }) {
   final config = Map<String, dynamic>.from(source);
   final existingRules = _asStringList(config['rules']);
@@ -38,19 +144,24 @@ Map<String, dynamic> buildPenrixPrivateNetworkConfig(
       ruleProviders[entry.key.toString()] = entry.value;
     }
   }
-  ruleProviders[penrixAdblockProviderName] = <String, dynamic>{
-    'type': 'http',
-    'behavior': 'domain',
-    'format': 'mrs',
-    'url': penrixAdblockProviderUrl,
-    'interval': penrixAdblockUpdateInterval,
-    if (proxyTarget != null) 'proxy': proxyTarget,
-  };
+  if (settings.adblock) {
+    ruleProviders[penrixAdblockProviderName] = <String, dynamic>{
+      'type': 'http',
+      'behavior': 'domain',
+      'format': 'mrs',
+      'url': penrixAdblockProviderUrl,
+      'interval': penrixAdblockUpdateInterval,
+      if (proxyTarget != null) 'proxy': proxyTarget,
+    };
+  } else {
+    ruleProviders.remove(penrixAdblockProviderName);
+  }
   config['rule-providers'] = ruleProviders;
   config['rules'] = mergePenrixPrivateRules(
     config,
     existingRules,
     routingRules: targetRules,
+    settings: settings,
   );
   return config;
 }
@@ -59,13 +170,14 @@ List<String> mergePenrixPrivateRules(
   Map<String, dynamic> config,
   List<String> existingRules, {
   List<String>? routingRules,
+  PenrixPrivateSettings settings = const PenrixPrivateSettings(),
 }) {
   final targetRules = routingRules?.isNotEmpty == true
       ? routingRules!
       : existingRules;
   final proxyTarget = inferPenrixProxyTarget(config, targetRules);
   return _prependUnique(
-    _privateRulePrefix(proxyTarget),
+    _privateRulePrefix(proxyTarget, settings),
     existingRules,
   );
 }
@@ -141,13 +253,24 @@ String? inferPenrixProxyTarget(
   return null;
 }
 
-List<String> _privateRulePrefix(String? proxyTarget) => [
-  if (proxyTarget != null) ..._chatGptCriticalRules(proxyTarget),
-  'DOMAIN-SUFFIX,uaa.com,DIRECT',
-  'DOMAIN-SUFFIX,uaa002.com,DIRECT',
-  'RULE-SET,$penrixAdblockProviderName,REJECT',
-  if (proxyTarget != null) ..._commonAppRules(proxyTarget),
-  if (proxyTarget != null) ..._privateSiteRules(proxyTarget),
+List<String> _privateRulePrefix(
+  String? proxyTarget,
+  PenrixPrivateSettings settings,
+) => [
+  if (settings.chatGpt && proxyTarget != null)
+    ..._chatGptCriticalRules(proxyTarget),
+  if (settings.uaaDirect) ...[
+    'DOMAIN-SUFFIX,uaa.com,DIRECT',
+    'DOMAIN-SUFFIX,uaa002.com,DIRECT',
+  ],
+  if (settings.adblock) 'RULE-SET,$penrixAdblockProviderName,REJECT',
+  if (settings.twitter && proxyTarget != null) ..._twitterRules(proxyTarget),
+  if (settings.telegram && proxyTarget != null) ..._telegramRules(proxyTarget),
+  if (settings.github && proxyTarget != null) ..._githubRules(proxyTarget),
+  if (settings.google && proxyTarget != null) ..._googleRules(proxyTarget),
+  if (settings.pixiv && proxyTarget != null) ..._pixivRules(proxyTarget),
+  if (settings.privateSites && proxyTarget != null)
+    ..._privateSiteRules(proxyTarget),
 ];
 
 List<String> _chatGptCriticalRules(String target) => [
@@ -160,28 +283,40 @@ List<String> _chatGptCriticalRules(String target) => [
   'DOMAIN-SUFFIX,oaistatsig.com,$target',
 ];
 
-List<String> _commonAppRules(String target) => [
+List<String> _twitterRules(String target) => [
   'PROCESS-NAME,com.twitter.android,$target',
   'DOMAIN-SUFFIX,x.com,$target',
   'DOMAIN-SUFFIX,twitter.com,$target',
   'DOMAIN-SUFFIX,twimg.com,$target',
   'DOMAIN-SUFFIX,t.co,$target',
+];
+
+List<String> _telegramRules(String target) => [
   'PROCESS-NAME,org.telegram.messenger,$target',
   'PROCESS-NAME,org.telegram.messenger.web,$target',
   'DOMAIN-SUFFIX,telegram.org,$target',
   'DOMAIN-SUFFIX,t.me,$target',
   'DOMAIN-SUFFIX,telegra.ph,$target',
+];
+
+List<String> _githubRules(String target) => [
   'PROCESS-NAME,com.github.android,$target',
   'DOMAIN-SUFFIX,github.com,$target',
   'DOMAIN-SUFFIX,githubusercontent.com,$target',
   'DOMAIN-SUFFIX,githubassets.com,$target',
   'DOMAIN-SUFFIX,github.io,$target',
+];
+
+List<String> _googleRules(String target) => [
   'DOMAIN-SUFFIX,google.com,$target',
   'DOMAIN-SUFFIX,googleapis.com,$target',
   'DOMAIN-SUFFIX,gstatic.com,$target',
   'DOMAIN-SUFFIX,googleusercontent.com,$target',
   'DOMAIN-SUFFIX,googlevideo.com,$target',
   'DOMAIN-SUFFIX,ytimg.com,$target',
+];
+
+List<String> _pixivRules(String target) => [
   'PROCESS-NAME,jp.pxv.android,$target',
   'DOMAIN-SUFFIX,pixiv.net,$target',
   'DOMAIN-SUFFIX,pximg.net,$target',
