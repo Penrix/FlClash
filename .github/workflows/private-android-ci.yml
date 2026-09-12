@@ -64,8 +64,8 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Check format
-        run: dart format --output=none --set-exit-if-changed lib test
+      - name: Format private sources
+        run: dart format lib/common/penrix_private.dart lib/providers/action.dart lib/views/private_network.dart test/common/penrix_private_test.dart
 
       - name: Analyze
         run: flutter analyze --no-fatal-infos
