@@ -24,6 +24,58 @@ void main() {
       expect(target, '节点选择');
     });
 
+    test('does not steal a target from another enhanced service', () {
+      final config = <String, dynamic>{
+        'proxies': [
+          {'name': 'Cox-US', 'type': 'ss'},
+        ],
+        'proxy-groups': [
+          {
+            'name': 'GoogleOnly',
+            'type': 'select',
+            'proxies': ['Cox-US'],
+          },
+          {
+            'name': 'Residential',
+            'type': 'select',
+            'proxies': ['Cox-US'],
+          },
+        ],
+      };
+      final target = inferPenrixProxyTarget(config, [
+        'DOMAIN-SUFFIX,google.com,GoogleOnly',
+        'DOMAIN-SUFFIX,openai.com,Residential',
+        'MATCH,DIRECT',
+      ]);
+
+      expect(target, 'Residential');
+    });
+
+    test('uses MATCH before an arbitrary selector fallback', () {
+      final config = <String, dynamic>{
+        'proxies': [
+          {'name': 'Cox-US', 'type': 'ss'},
+        ],
+        'proxy-groups': [
+          {
+            'name': 'Special',
+            'type': 'select',
+            'proxies': ['Cox-US'],
+          },
+          {
+            'name': 'Final',
+            'type': 'select',
+            'proxies': ['Cox-US'],
+          },
+        ],
+      };
+
+      expect(
+        inferPenrixProxyTarget(config, ['MATCH,Final']),
+        'Final',
+      );
+    });
+
     test('falls back to a selector and then a concrete proxy', () {
       expect(
         inferPenrixProxyTarget(<String, dynamic>{
@@ -70,6 +122,9 @@ void main() {
       final chatGptProcess = rules.indexOf(
         'PROCESS-NAME,com.openai.chatgpt,Residential',
       );
+      final windowsChatGptProcess = rules.indexOf(
+        'PROCESS-NAME,ChatGPT.exe,Residential',
+      );
       final webSocket = rules.indexOf(
         'DOMAIN,ws.chatgpt.com,Residential',
       );
@@ -79,9 +134,52 @@ void main() {
       final originalMatch = rules.indexOf('MATCH,DIRECT');
 
       expect(chatGptProcess, 0);
-      expect(webSocket, greaterThan(chatGptProcess));
+      expect(windowsChatGptProcess, greaterThan(chatGptProcess));
+      expect(webSocket, greaterThan(windowsChatGptProcess));
       expect(adblock, greaterThan(webSocket));
       expect(originalMatch, greaterThan(adblock));
+    });
+
+    test('can keep raw rules untouched while preparing standard additions', () {
+      final rawConfig = <String, dynamic>{
+        'proxy-groups': [
+          {
+            'name': 'Residential',
+            'type': 'select',
+            'proxies': ['Cox-US'],
+          },
+        ],
+        'proxies': [
+          {'name': 'Cox-US', 'type': 'ss'},
+        ],
+        'rules': ['MATCH,DIRECT'],
+      };
+      final config = buildPenrixPrivateNetworkConfig(
+        rawConfig,
+        routingRules: [
+          'DOMAIN-SUFFIX,openai.com,Residential',
+          'MATCH,DIRECT',
+        ],
+        prependPrivateRules: false,
+      );
+      final addedRules = mergePenrixPrivateRules(
+        config,
+        ['DOMAIN-SUFFIX,example.com,DIRECT'],
+        routingRules: [
+          'DOMAIN-SUFFIX,openai.com,Residential',
+          'MATCH,DIRECT',
+        ],
+      );
+
+      expect(config['rules'], ['MATCH,DIRECT']);
+      expect(
+        addedRules.first,
+        'PROCESS-NAME,com.openai.chatgpt,Residential',
+      );
+      expect(
+        addedRules.indexOf('DOMAIN-SUFFIX,example.com,DIRECT'),
+        greaterThan(addedRules.indexOf('DOMAIN-SUFFIX,openai.com,Residential')),
+      );
     });
 
     test('forces UAA direct while other private sites use the proxy', () {
