@@ -2,8 +2,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:fl_clash/common/boot_guard.dart';
-import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/common.dart' hide makeRealProfileTask;
+import 'package:fl_clash/common/penrix_android_dns.dart';
+import 'package:fl_clash/common/penrix_private.dart';
 import 'package:fl_clash/common/system_dns.dart';
+import 'package:fl_clash/common/task.dart' as upstream_task;
 import 'package:fl_clash/core/core.dart';
 import 'package:fl_clash/database/database.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -31,3 +34,73 @@ part 'actions/profiles.dart';
 part 'actions/geo_resource.dart';
 part 'actions/updating.dart';
 part 'generated/action.g.dart';
+
+Future<({String yaml, String md5})> makeRealProfileTask(
+  MakeRealProfileState data,
+) async {
+  final settings = await loadPenrixPrivateSettings();
+  final customRuleValues = data.rules.map((rule) => rule.rawValue).toList();
+  final addedRuleValues = data.addedRules.map((rule) => rule.rawValue).toList();
+  final sourceRuleValues = data.rawConfig['rules'] is List
+      ? (data.rawConfig['rules'] as List)
+            .map((rule) => rule.toString())
+            .toList()
+      : <String>[];
+  final routingRuleValues = customRuleValues.isNotEmpty
+      ? customRuleValues
+      : [...addedRuleValues, ...sourceRuleValues];
+  final hasStandardAddedRules =
+      customRuleValues.isEmpty && addedRuleValues.isNotEmpty;
+  final requiresProcessMatching =
+      settings.chatGpt ||
+      settings.twitter ||
+      settings.telegram ||
+      settings.github ||
+      settings.pixiv;
+
+  final privateConfig = buildPenrixPrivateNetworkConfig(
+    data.rawConfig,
+    routingRules: routingRuleValues,
+    settings: settings,
+    prependPrivateRules: !hasStandardAddedRules,
+  );
+  final privateCustomRules = customRuleValues.isEmpty
+      ? data.rules
+      : mergePenrixPrivateRules(
+          privateConfig,
+          customRuleValues,
+          routingRules: routingRuleValues,
+          settings: settings,
+        ).map((value) => Rule.parse(value)).toList();
+  final privateAddedRules = !hasStandardAddedRules
+      ? data.addedRules
+      : mergePenrixPrivateRules(
+          privateConfig,
+          addedRuleValues,
+          routingRules: routingRuleValues,
+          settings: settings,
+        ).map((value) => Rule.parse(value)).toList();
+
+  final result = await upstream_task.makeRealProfileTask(
+    data.copyWith(
+      rawConfig: privateConfig,
+      rules: privateCustomRules,
+      addedRules: privateAddedRules,
+      realPatchConfig: data.realPatchConfig.copyWith(
+        findProcessMode: requiresProcessMatching
+            ? FindProcessMode.always
+            : data.realPatchConfig.findProcessMode,
+      ),
+    ),
+  );
+
+  if (!Platform.isAndroid || !data.realPatchConfig.tun.enable) {
+    return result;
+  }
+
+  final sanitizedYaml = stripExternalDnsListenFromYaml(result.yaml);
+  if (sanitizedYaml == result.yaml) {
+    return result;
+  }
+  return (yaml: sanitizedYaml, md5: sanitizedYaml.toMd5());
+}

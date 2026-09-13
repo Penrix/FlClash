@@ -35,7 +35,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.follow.clash"
+        applicationId = "com.follow.clash.penrix"
         minSdk = flutter.minSdkVersion
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = flutter.versionCode
@@ -71,8 +71,9 @@ android {
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             } else {
+                // The private package id is already isolated from upstream FlClash,
+                // so a CI fallback signature does not need a visible `.dev` suffix.
                 signingConfig = signingConfigs.getByName("debug")
-                applicationIdSuffix = ".dev"
             }
 
             proguardFiles(

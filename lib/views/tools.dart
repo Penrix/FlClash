@@ -10,6 +10,7 @@ import 'package:fl_clash/views/application_setting.dart';
 import 'package:fl_clash/views/backup_and_restore.dart';
 import 'package:fl_clash/views/config/config.dart';
 import 'package:fl_clash/views/hotkey.dart';
+import 'package:fl_clash/views/private_network.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -67,6 +68,7 @@ class _ToolViewState extends ConsumerState<ToolsView> {
     return generateSection(
       title: context.appLocalizations.settings,
       items: [
+        const _PrivateNetworkItem(),
         const _LocaleItem(),
         const _ThemeItem(),
         const _BackupItem(),
@@ -113,6 +115,20 @@ class _ToolViewState extends ConsumerState<ToolsView> {
         itemBuilder: (_, index) => items[index],
         padding: const EdgeInsets.only(bottom: 20),
       ),
+    );
+  }
+}
+
+class _PrivateNetworkItem extends StatelessWidget {
+  const _PrivateNetworkItem();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListItem.open(
+      leading: const Icon(Icons.shield_outlined),
+      title: const Text('私人网络'),
+      subtitle: const Text('ChatGPT 稳定增强、应用路由、UAA 直连与广告过滤'),
+      widget: const PrivateNetworkView(),
     );
   }
 }

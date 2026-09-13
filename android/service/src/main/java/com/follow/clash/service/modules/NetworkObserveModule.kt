@@ -12,7 +12,9 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import androidx.core.content.getSystemService
+import com.follow.clash.common.GlobalState
 import com.follow.clash.core.Core
+import com.follow.clash.service.VpnHealthSignalSink
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -34,6 +36,9 @@ internal class NetworkObserveModule(private val service: Service) : ServiceModul
     }
     private val mainHandler = Handler(Looper.getMainLooper())
     private var currentDnsList = listOf<String>()
+    private var currentNetwork: Network? = null
+    private var currentNetworkValidated = false
+    private var currentNetworkDescription = "none"
 
     private val request = NetworkRequest.Builder().apply {
         addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
@@ -47,17 +52,17 @@ internal class NetworkObserveModule(private val service: Service) : ServiceModul
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             networkInfos[network] = NetworkInfo()
-            updateDns()
+            updateNetworkState()
         }
 
         override fun onLosing(network: Network, maxMsToLive: Int) {
             val info = networkInfos[network] ?: return
             info.losingUntilMillis = System.currentTimeMillis() + maxMsToLive
-            updateDns()
+            updateNetworkState()
             if (maxMsToLive > 0) {
                 mainHandler.postDelayed({
                     if (networkInfos.containsKey(network)) {
-                        updateDns()
+                        updateNetworkState()
                     }
                 }, maxMsToLive.toLong() + 50)
             }
@@ -65,23 +70,36 @@ internal class NetworkObserveModule(private val service: Service) : ServiceModul
 
         override fun onLost(network: Network) {
             networkInfos.remove(network)
-            updateDns()
+            updateNetworkState()
         }
 
         override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
             networkInfos[network]?.dnsList = linkProperties.dnsServers
-            updateDns()
+            updateNetworkState()
+        }
+
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+            if (networkInfos.containsKey(network)) {
+                updateNetworkState()
+            }
         }
     }
 
     override fun start() {
-        updateDns()
+        updateNetworkState()
         connectivity?.registerNetworkCallback(request, callback)
     }
 
     private fun networkPriority(entry: Map.Entry<Network, NetworkInfo>): Int {
         val capabilities = connectivity?.getNetworkCapabilities(entry.key)
-        return when {
+        val validationPenalty = if (
+            capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        ) {
+            0
+        } else {
+            20
+        }
+        val transportPriority = when {
             capabilities == null -> 100
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> 90
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 0
@@ -95,13 +113,52 @@ internal class NetworkObserveModule(private val service: Service) : ServiceModul
                 capabilities.hasTransport(TRANSPORT_SATELLITE) -> 5
 
             else -> 20
-        } + entry.value.priorityPenalty
+        }
+        return transportPriority + validationPenalty + entry.value.priorityPenalty
+    }
+
+    private fun describeNetwork(capabilities: NetworkCapabilities?): String = when {
+        capabilities == null -> "unknown"
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            capabilities.hasTransport(TRANSPORT_USB) -> "usb"
+
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> "bluetooth"
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM &&
+            capabilities.hasTransport(TRANSPORT_SATELLITE) -> "satellite"
+
+        else -> "other"
     }
 
     @Synchronized
-    private fun updateDns() {
-        val dnsList = networkInfos.asSequence()
-            .minByOrNull(::networkPriority)
+    private fun updateNetworkState() {
+        val selected = networkInfos.entries.minByOrNull(::networkPriority)
+        val network = selected?.key
+        val capabilities = network?.let { connectivity?.getNetworkCapabilities(it) }
+        val validated =
+            capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        val description = if (network == null) "none" else describeNetwork(capabilities)
+
+        if (
+            network != currentNetwork ||
+            validated != currentNetworkValidated ||
+            description != currentNetworkDescription
+        ) {
+            currentNetwork = network
+            currentNetworkValidated = validated
+            currentNetworkDescription = description
+            GlobalState.log(
+                "Underlying network selected: $description validated=$validated",
+            )
+            (service as? VpnHealthSignalSink)?.onUnderlyingNetworkChanged(
+                validated = validated,
+                description = description,
+            )
+        }
+
+        val dnsList = selected
             ?.value
             ?.dnsList
             .orEmpty()
@@ -120,7 +177,7 @@ internal class NetworkObserveModule(private val service: Service) : ServiceModul
             connectivity?.unregisterNetworkCallback(callback)
         } finally {
             networkInfos.clear()
-            updateDns()
+            updateNetworkState()
         }
     }
 }
