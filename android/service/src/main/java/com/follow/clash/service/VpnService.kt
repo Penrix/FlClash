@@ -3,6 +3,8 @@ package com.follow.clash.service
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.ProxyInfo
 import android.os.Binder
 import android.os.Build
@@ -21,6 +23,11 @@ import com.follow.clash.service.models.toCIDR
 import com.follow.clash.service.modules.ServiceModules
 import java.net.InetSocketAddress
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONObject
 import android.net.VpnService as SystemVpnService
 
 class VpnService : SystemVpnService(), ManagedService, VpnHealthSignalSink {
@@ -30,6 +37,10 @@ class VpnService : SystemVpnService(), ManagedService, VpnHealthSignalSink {
     private val tunLock = Any()
     private var tunRunning = false
     private var healthMonitor: VpnConnectionHealth? = null
+    private val healthCoreRequestId = AtomicLong()
+
+    @Volatile
+    private var healthUnderlyingNetwork: Network? = null
 
     @Volatile
     private var healthUnderlyingValidated = false
@@ -141,6 +152,12 @@ class VpnService : SystemVpnService(), ManagedService, VpnHealthSignalSink {
             configureAccessControl(options)
             setSession(getString(CommonR.string.app_name))
             setBlocking(false)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                // Tell Android which real non-VPN network backs this tunnel. Unlike a blind
+                // setUnderlyingNetworks call, the value comes from NetworkObserveModule's
+                // filtered INTERNET + NOT_VPN inventory and is refreshed on transitions.
+                setUnderlyingNetworks(healthUnderlyingNetwork?.let { arrayOf(it) })
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 setMetered(false)
             }
@@ -294,6 +311,7 @@ class VpnService : SystemVpnService(), ManagedService, VpnHealthSignalSink {
         healthMonitor?.stop()
         healthMonitor = VpnConnectionHealth(this).also { monitor ->
             monitor.start(
+                network = healthUnderlyingNetwork,
                 validated = healthUnderlyingValidated,
                 description = healthUnderlyingDescription,
                 suspended = healthDeviceSuspended,
@@ -301,15 +319,110 @@ class VpnService : SystemVpnService(), ManagedService, VpnHealthSignalSink {
         }
     }
 
-    override fun onUnderlyingNetworkChanged(validated: Boolean, description: String) {
+    override fun onUnderlyingNetworkChanged(
+        network: Network?,
+        validated: Boolean,
+        description: String,
+    ) {
+        healthUnderlyingNetwork = network
         healthUnderlyingValidated = validated
         healthUnderlyingDescription = description
-        healthMonitor?.onUnderlyingNetworkChanged(validated, description)
+        syncUnderlyingNetworkForVpn(network)
+        healthMonitor?.onUnderlyingNetworkChanged(network, validated, description)
     }
 
     override fun onDeviceSuspensionChanged(suspended: Boolean) {
         healthDeviceSuspended = suspended
+        if (!suspended) {
+            modules.refreshUnderlyingNetwork("resume")
+        }
         healthMonitor?.onDeviceSuspensionChanged(suspended)
+    }
+
+    internal fun requestUnderlyingNetworkRefreshForHealth(reason: String) {
+        modules.refreshUnderlyingNetwork(reason)
+    }
+
+    internal fun isUnderlyingNetworkReadyForHealth(network: Network?): Boolean {
+        network ?: return false
+        val capabilities = connectivity?.getNetworkCapabilities(network) ?: return false
+        if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return false
+        if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return false
+        if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return false
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+            !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+        ) {
+            return false
+        }
+        return true
+    }
+
+    private fun syncUnderlyingNetworkForVpn(network: Network?) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP_MR1) return
+        if (!isTunnelRunningForHealth()) return
+        runCatching {
+            setUnderlyingNetworks(network?.let { arrayOf(it) })
+        }.onSuccess { applied ->
+            if (!applied) {
+                GlobalState.log("VPN health: Android rejected underlying-network update: $network")
+            }
+        }.onFailure { error ->
+            GlobalState.log("VPN health: unable to update Android underlying network: $error")
+        }
+    }
+
+    internal suspend fun resetConnectionsForHealth(reason: String): Boolean {
+        if (!isTunnelRunningForHealth()) return false
+        val reset = invokeHealthBooleanMethod("resetConnections")
+        if (reset) {
+            GlobalState.log("VPN health: Core connections reset ($reason)")
+            return true
+        }
+
+        // Older/custom cores may not implement the stronger reset primitive even though the app
+        // knows about it. closeConnections is the existing lower-level fallback and is harmless if
+        // resetConnections already failed without applying anything.
+        val closed = invokeHealthBooleanMethod("closeConnections")
+        GlobalState.log(
+            if (closed) {
+                "VPN health: Core connections closed via fallback ($reason)"
+            } else {
+                "VPN health: Core connection reset did not complete ($reason)"
+            },
+        )
+        return closed
+    }
+
+    private suspend fun invokeHealthBooleanMethod(method: String): Boolean {
+        val request = JSONObject()
+            .put("id", "penrix-health-${healthCoreRequestId.incrementAndGet()}")
+            .put("method", method)
+            .put("arguments", JSONObject.NULL)
+            .toString()
+
+        val response = withTimeoutOrNull(HEALTH_CORE_METHOD_TIMEOUT_MILLIS) {
+            suspendCancellableCoroutine<String> { continuation ->
+                runCatching {
+                    Core.invokeMethod(request) { result ->
+                        if (continuation.isActive) {
+                            continuation.resume(result.orEmpty())
+                        }
+                    }
+                }.onFailure {
+                    if (continuation.isActive) {
+                        continuation.resume("")
+                    }
+                }
+            }
+        } ?: return false
+
+        if (response.isBlank()) return false
+        return runCatching {
+            val json = JSONObject(response)
+            val error = json.opt("error")
+            (error == null || error == JSONObject.NULL) && json.optBoolean("result", false)
+        }.getOrDefault(false)
     }
 
     internal fun isTunnelRunningForHealth(): Boolean = synchronized(tunLock) {
@@ -364,6 +477,7 @@ class VpnService : SystemVpnService(), ManagedService, VpnHealthSignalSink {
     companion object {
         private const val ACTION_KEEP_ALIVE =
             "com.follow.clash.service.intent.action.PENRIX_KEEP_ALIVE"
+        private const val HEALTH_CORE_METHOD_TIMEOUT_MILLIS = 3_000L
         private const val IPV4_ADDRESS = "172.19.0.1/30"
         private const val IPV6_ADDRESS = "fdfe:dcba:9876::1/126"
         private const val DNS = "172.19.0.2"

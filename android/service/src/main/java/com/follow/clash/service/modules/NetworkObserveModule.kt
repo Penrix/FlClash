@@ -40,54 +40,129 @@ internal class NetworkObserveModule(private val service: Service) : ServiceModul
     private var currentNetworkValidated = false
     private var currentNetworkDescription = "none"
 
+    @Volatile
+    private var started = false
+
+    // Do not require FOREGROUND/NOT_RESTRICTED here. A foreground VPN must keep observing the real
+    // physical INTERNET network while the phone is idle or Data Saver changes capabilities. The
+    // selected network is still filtered to NOT_VPN and re-ranked by validation + transport.
     private val request = NetworkRequest.Builder().apply {
         addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
         addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            addCapability(NetworkCapabilities.NET_CAPABILITY_FOREGROUND)
-        }
-        addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
     }.build()
+
+    private val updateRunnable = Runnable {
+        if (!started) return@Runnable
+        reconcileNetworksFromSystem()
+        updateNetworkState()
+    }
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
-            networkInfos[network] = NetworkInfo()
-            updateNetworkState()
+            if (!started) return
+            networkInfos.putIfAbsent(network, NetworkInfo())
+            connectivity?.getLinkProperties(network)?.let { properties ->
+                networkInfos[network]?.dnsList = properties.dnsServers
+            }
+            scheduleNetworkStateUpdate()
         }
 
         override fun onLosing(network: Network, maxMsToLive: Int) {
+            if (!started) return
             val info = networkInfos[network] ?: return
             info.losingUntilMillis = System.currentTimeMillis() + maxMsToLive
-            updateNetworkState()
+            scheduleNetworkStateUpdate()
             if (maxMsToLive > 0) {
                 mainHandler.postDelayed({
-                    if (networkInfos.containsKey(network)) {
-                        updateNetworkState()
+                    if (started && networkInfos.containsKey(network)) {
+                        scheduleNetworkStateUpdate(0)
                     }
                 }, maxMsToLive.toLong() + 50)
             }
         }
 
         override fun onLost(network: Network) {
+            if (!started) return
             networkInfos.remove(network)
-            updateNetworkState()
+            scheduleNetworkStateUpdate()
         }
 
         override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+            if (!started) return
             networkInfos[network]?.dnsList = linkProperties.dnsServers
-            updateNetworkState()
+            scheduleNetworkStateUpdate()
         }
 
         override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
-            if (networkInfos.containsKey(network)) {
-                updateNetworkState()
+            if (!started) return
+            if (isEligibleNetwork(networkCapabilities)) {
+                networkInfos.putIfAbsent(network, NetworkInfo())
             }
+            scheduleNetworkStateUpdate()
         }
     }
 
     override fun start() {
-        updateNetworkState()
+        if (started) return
+        started = true
         connectivity?.registerNetworkCallback(request, callback)
+        refreshAfterSystemTransition("start")
+    }
+
+    /**
+     * Network callbacks are hints, not a perfectly ordered snapshot. Resume and failed health probes
+     * ask for a bounded inventory refresh immediately and again after Android has had time to settle.
+     * This is event-driven; there is no periodic background scan.
+     */
+    fun refreshAfterSystemTransition(reason: String) {
+        if (!started) return
+        GlobalState.log("Underlying network refresh requested: $reason")
+        scheduleNetworkStateUpdate(0)
+        mainHandler.postDelayed({
+            if (started) scheduleNetworkStateUpdate(0)
+        }, SETTLE_REFRESH_DELAY_MILLIS)
+        mainHandler.postDelayed({
+            if (started) scheduleNetworkStateUpdate(0)
+        }, FINAL_REFRESH_DELAY_MILLIS)
+    }
+
+    private fun scheduleNetworkStateUpdate(delayMillis: Long = NETWORK_EVENT_DEBOUNCE_MILLIS) {
+        if (!started) return
+        mainHandler.removeCallbacks(updateRunnable)
+        mainHandler.postDelayed(updateRunnable, delayMillis)
+    }
+
+    private fun isEligibleNetwork(capabilities: NetworkCapabilities?): Boolean {
+        capabilities ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+    }
+
+    private fun reconcileNetworksFromSystem() {
+        val manager = connectivity ?: return
+        val liveNetworks = runCatching { manager.allNetworks.toList() }
+            .onFailure { error ->
+                GlobalState.log("Unable to refresh underlying networks: $error")
+            }
+            .getOrDefault(emptyList())
+
+        val eligibleNetworks = mutableSetOf<Network>()
+        liveNetworks.forEach { network ->
+            val capabilities = manager.getNetworkCapabilities(network)
+            if (!isEligibleNetwork(capabilities)) return@forEach
+            eligibleNetworks += network
+            val info = networkInfos[network] ?: NetworkInfo().also {
+                networkInfos[network] = it
+            }
+            manager.getLinkProperties(network)?.let { properties ->
+                info.dnsList = properties.dnsServers
+            }
+        }
+
+        networkInfos.keys.toList()
+            .filter { it !in eligibleNetworks }
+            .forEach { networkInfos.remove(it) }
     }
 
     private fun networkPriority(entry: Map.Entry<Network, NetworkInfo>): Int {
@@ -98,6 +173,14 @@ internal class NetworkObserveModule(private val service: Service) : ServiceModul
             0
         } else {
             20
+        }
+        val suspendedPenalty = if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+            capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED) == false
+        ) {
+            30
+        } else {
+            0
         }
         val transportPriority = when {
             capabilities == null -> 100
@@ -114,7 +197,7 @@ internal class NetworkObserveModule(private val service: Service) : ServiceModul
 
             else -> 20
         }
-        return transportPriority + validationPenalty + entry.value.priorityPenalty
+        return transportPriority + validationPenalty + suspendedPenalty + entry.value.priorityPenalty
     }
 
     private fun describeNetwork(capabilities: NetworkCapabilities?): String = when {
@@ -138,7 +221,11 @@ internal class NetworkObserveModule(private val service: Service) : ServiceModul
         val network = selected?.key
         val capabilities = network?.let { connectivity?.getNetworkCapabilities(it) }
         val validated =
-            capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+            capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true &&
+                (
+                    Build.VERSION.SDK_INT < Build.VERSION_CODES.P ||
+                        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+                    )
         val description = if (network == null) "none" else describeNetwork(capabilities)
 
         if (
@@ -150,9 +237,10 @@ internal class NetworkObserveModule(private val service: Service) : ServiceModul
             currentNetworkValidated = validated
             currentNetworkDescription = description
             GlobalState.log(
-                "Underlying network selected: $description validated=$validated",
+                "Underlying network selected: $description network=$network validated=$validated",
             )
             (service as? VpnHealthSignalSink)?.onUnderlyingNetworkChanged(
+                network = network,
                 validated = validated,
                 description = description,
             )
@@ -172,6 +260,8 @@ internal class NetworkObserveModule(private val service: Service) : ServiceModul
     }
 
     override fun stop() {
+        if (!started) return
+        started = false
         mainHandler.removeCallbacksAndMessages(null)
         try {
             connectivity?.unregisterNetworkCallback(callback)
@@ -179,6 +269,12 @@ internal class NetworkObserveModule(private val service: Service) : ServiceModul
             networkInfos.clear()
             updateNetworkState()
         }
+    }
+
+    private companion object {
+        const val NETWORK_EVENT_DEBOUNCE_MILLIS = 250L
+        const val SETTLE_REFRESH_DELAY_MILLIS = 1_000L
+        const val FINAL_REFRESH_DELAY_MILLIS = 3_000L
     }
 }
 
