@@ -126,7 +126,7 @@ class _PrivateNetworkViewState extends ConsumerState<PrivateNetworkView> {
           _section('关键工具'),
           _toggle(
             title: 'ChatGPT · 关键',
-            subtitle: '强制 ChatGPT App、OpenAI 域名族和 WebSocket 使用当前代理',
+            subtitle: '建立独立稳定通道，可在代理页单独固定节点',
             value: settings.chatGpt,
             update: (current, value) => current.copyWith(chatGpt: value),
           ),

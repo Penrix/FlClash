@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const String penrixAdblockProviderName = 'penrix-adblock';
+const String penrixChatGptGroupName = '💬 Penrix ChatGPT 稳定通道';
 const String penrixAdblockProviderUrl =
     'https://raw.githubusercontent.com/217heidai/adblockfilters/main/rules/adblockmihomo.mrs';
 const int penrixAdblockUpdateInterval = 28800;
@@ -148,6 +149,7 @@ Map<String, dynamic> buildPenrixPrivateNetworkConfig(
       ? routingRules!
       : existingRules;
   final proxyTarget = inferPenrixProxyTarget(config, targetRules);
+  _updateChatGptGroup(config, proxyTarget, enabled: settings.chatGpt);
   final providerProxyTarget = inferPenrixProviderDownloadTarget(
     config,
     proxyTarget,
@@ -205,7 +207,16 @@ List<String> buildPenrixPrivateRulePrefix(
   PenrixPrivateSettings settings = const PenrixPrivateSettings(),
 }) {
   final proxyTarget = inferPenrixProxyTarget(config, routingRules);
-  return _privateRulePrefix(proxyTarget, settings);
+  final hasChatGptGroup =
+      config['proxy-groups'] is List &&
+      (config['proxy-groups'] as List).whereType<Map>().any(
+        (group) => group['name'] == penrixChatGptGroupName,
+      );
+  return _privateRulePrefix(
+    proxyTarget,
+    settings,
+    chatGptTarget: hasChatGptGroup ? penrixChatGptGroupName : proxyTarget,
+  );
 }
 
 String? inferPenrixProxyTarget(
@@ -246,7 +257,7 @@ String? inferPenrixProxyTarget(
     if (value.isEmpty || _reservedTargets.contains(value.toUpperCase())) {
       return false;
     }
-    return availableTargets.contains(value);
+    return value != penrixChatGptGroupName && availableTargets.contains(value);
   }
 
   for (final rawRule in rules) {
@@ -267,8 +278,12 @@ String? inferPenrixProxyTarget(
     if (usable(target)) return target!.trim();
   }
 
-  if (selectorGroupNames.isNotEmpty) return selectorGroupNames.first;
-  if (groupNames.isNotEmpty) return groupNames.first;
+  for (final name in selectorGroupNames) {
+    if (name != penrixChatGptGroupName) return name;
+  }
+  for (final name in groupNames) {
+    if (name != penrixChatGptGroupName) return name;
+  }
   if (proxyNames.isNotEmpty) return proxyNames.first;
   return null;
 }
@@ -319,10 +334,11 @@ String? inferPenrixProviderDownloadTarget(
 
 List<String> _privateRulePrefix(
   String? proxyTarget,
-  PenrixPrivateSettings settings,
-) => [
-  if (settings.chatGpt && proxyTarget != null)
-    ..._chatGptCriticalRules(proxyTarget),
+  PenrixPrivateSettings settings, {
+  required String? chatGptTarget,
+}) => [
+  if (settings.chatGpt && chatGptTarget != null)
+    ..._chatGptCriticalRules(chatGptTarget),
   if (settings.uaaDirect) ...[
     'DOMAIN-SUFFIX,uaa.com,DIRECT',
     'DOMAIN-SUFFIX,uaa002.com,DIRECT',
@@ -341,8 +357,11 @@ List<String> _chatGptCriticalRules(String target) => [
   'PROCESS-NAME,com.openai.chatgpt,$target',
   'PROCESS-NAME,ChatGPT.exe,$target',
   'PROCESS-NAME,ChatGPT,$target',
+  'PROCESS-NAME,codex.exe,$target',
   'DOMAIN,ws.chatgpt.com,$target',
   'DOMAIN-SUFFIX,chatgpt.com,$target',
+  'DOMAIN-SUFFIX,chatgpt.site,$target',
+  'DOMAIN-SUFFIX,chatgpt-team.site,$target',
   'DOMAIN-SUFFIX,openai.com,$target',
   'DOMAIN-SUFFIX,oaistatic.com,$target',
   'DOMAIN-SUFFIX,oaiusercontent.com,$target',
@@ -427,6 +446,63 @@ List<String> _privateSiteRules(String target) => [
   'DOMAIN-SUFFIX,bachashuku.org,$target',
   'DOMAIN-SUFFIX,hotupub.net,$target',
 ];
+
+void _updateChatGptGroup(
+  Map<String, dynamic> config,
+  String? proxyTarget, {
+  required bool enabled,
+}) {
+  final sourceGroups = config['proxy-groups'];
+  final groups = sourceGroups is List
+      ? sourceGroups
+            .whereType<Map>()
+            .map((group) => Map<String, dynamic>.from(group))
+            .where((group) => group['name'] != penrixChatGptGroupName)
+            .toList()
+      : <Map<String, dynamic>>[];
+  if (!enabled || proxyTarget == null) {
+    config['proxy-groups'] = groups;
+    return;
+  }
+
+  final members = <String>[];
+  final seen = <String>{};
+  void addMember(dynamic value) {
+    final name = value?.toString().trim();
+    if (name == null ||
+        name.isEmpty ||
+        name == penrixChatGptGroupName ||
+        _reservedTargets.contains(name.toUpperCase()) ||
+        !seen.add(name)) {
+      return;
+    }
+    members.add(name);
+  }
+
+  addMember(proxyTarget);
+  for (final group in groups) {
+    if (group['name'] != proxyTarget || group['proxies'] is! List) continue;
+    for (final member in group['proxies'] as List) {
+      addMember(member);
+    }
+  }
+  final sourceProxies = config['proxies'];
+  if (sourceProxies is List) {
+    for (final proxy in sourceProxies.whereType<Map>()) {
+      addMember(proxy['name']);
+    }
+  }
+
+  config['proxy-groups'] = [
+    <String, dynamic>{
+      'name': penrixChatGptGroupName,
+      'type': 'select',
+      'proxies': members,
+      'default-selected': proxyTarget,
+    },
+    ...groups,
+  ];
+}
 
 List<String> _asStringList(dynamic value) {
   if (value is! List) return <String>[];

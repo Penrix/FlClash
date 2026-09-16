@@ -117,12 +117,14 @@ void main() {
 
       final rules = List<String>.from(config['rules'] as List);
       final chatGptProcess = rules.indexOf(
-        'PROCESS-NAME,com.openai.chatgpt,Residential',
+        'PROCESS-NAME,com.openai.chatgpt,$penrixChatGptGroupName',
       );
       final windowsChatGptProcess = rules.indexOf(
-        'PROCESS-NAME,ChatGPT.exe,Residential',
+        'PROCESS-NAME,ChatGPT.exe,$penrixChatGptGroupName',
       );
-      final webSocket = rules.indexOf('DOMAIN,ws.chatgpt.com,Residential');
+      final webSocket = rules.indexOf(
+        'DOMAIN,ws.chatgpt.com,$penrixChatGptGroupName',
+      );
       final adblock = rules.indexOf(
         'RULE-SET,$penrixAdblockProviderName,REJECT',
       );
@@ -133,6 +135,68 @@ void main() {
       expect(webSocket, greaterThan(windowsChatGptProcess));
       expect(adblock, greaterThan(webSocket));
       expect(originalMatch, greaterThan(adblock));
+    });
+
+    test('creates an independent persistent ChatGPT selector', () {
+      final config = buildPenrixPrivateNetworkConfig(<String, dynamic>{
+        'proxy-groups': [
+          {
+            'name': 'Residential',
+            'type': 'select',
+            'proxies': ['Cox-US', 'Backup-US'],
+          },
+        ],
+        'proxies': [
+          {'name': 'Cox-US', 'type': 'ss'},
+          {'name': 'Backup-US', 'type': 'vless'},
+        ],
+        'rules': ['DOMAIN-SUFFIX,openai.com,Residential', 'MATCH,DIRECT'],
+      });
+
+      final groups = List<Map<String, dynamic>>.from(
+        config['proxy-groups'] as List,
+      );
+      final chatGptGroup = groups.first;
+      expect(chatGptGroup['name'], penrixChatGptGroupName);
+      expect(chatGptGroup['type'], 'select');
+      expect(chatGptGroup['proxies'], ['Residential', 'Cox-US', 'Backup-US']);
+      expect(chatGptGroup['default-selected'], 'Residential');
+
+      final rules = List<String>.from(config['rules'] as List);
+      expect(
+        rules,
+        contains('DOMAIN-SUFFIX,openai.com,$penrixChatGptGroupName'),
+      );
+      expect(rules, contains('DOMAIN-SUFFIX,github.com,Residential'));
+    });
+
+    test('rebuilds the ChatGPT selector without nesting or duplication', () {
+      final first = buildPenrixPrivateNetworkConfig(<String, dynamic>{
+        'proxy-groups': [
+          {
+            'name': 'Residential',
+            'type': 'select',
+            'proxies': ['Cox-US'],
+          },
+        ],
+        'proxies': [
+          {'name': 'Cox-US', 'type': 'ss'},
+        ],
+        'rules': ['DOMAIN-SUFFIX,openai.com,Residential', 'MATCH,DIRECT'],
+      });
+      final rebuilt = buildPenrixPrivateNetworkConfig(first);
+      final groups = List<Map<String, dynamic>>.from(
+        rebuilt['proxy-groups'] as List,
+      );
+
+      expect(
+        groups.where((group) => group['name'] == penrixChatGptGroupName),
+        hasLength(1),
+      );
+      expect(
+        (groups.first['proxies'] as List),
+        isNot(contains(penrixChatGptGroupName)),
+      );
     });
 
     test('can keep raw rules untouched while preparing standard additions', () {
@@ -161,7 +225,10 @@ void main() {
       );
 
       expect(config['rules'], ['MATCH,DIRECT']);
-      expect(addedRules.first, 'PROCESS-NAME,com.openai.chatgpt,Residential');
+      expect(
+        addedRules.first,
+        'PROCESS-NAME,com.openai.chatgpt,$penrixChatGptGroupName',
+      );
       expect(
         addedRules.indexOf('DOMAIN-SUFFIX,example.com,DIRECT'),
         greaterThan(addedRules.indexOf('DOMAIN-SUFFIX,openai.com,Residential')),
@@ -264,7 +331,10 @@ void main() {
         routingRules: customRules,
       );
 
-      expect(merged.first, 'PROCESS-NAME,com.openai.chatgpt,Residential');
+      expect(
+        merged.first,
+        'PROCESS-NAME,com.openai.chatgpt,$penrixChatGptGroupName',
+      );
       expect(
         merged.indexOf('RULE-SET,$penrixAdblockProviderName,REJECT'),
         lessThan(merged.indexOf('MATCH,DIRECT')),
@@ -302,6 +372,12 @@ void main() {
       }, settings: settings);
 
       expect(config['rules'], ['MATCH,DIRECT']);
+      expect(
+        (config['proxy-groups'] as List).where(
+          (group) => group['name'] == penrixChatGptGroupName,
+        ),
+        isEmpty,
+      );
       expect(
         (config['rule-providers'] as Map).containsKey(
           penrixAdblockProviderName,

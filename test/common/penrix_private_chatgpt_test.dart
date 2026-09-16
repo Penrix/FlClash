@@ -22,7 +22,10 @@ void main() {
 
     expect(rules, contains('PROCESS-NAME,com.openai.chatgpt,Residential'));
     expect(rules, contains('PROCESS-NAME,ChatGPT.exe,Residential'));
+    expect(rules, contains('PROCESS-NAME,codex.exe,Residential'));
     expect(rules, contains('DOMAIN,ws.chatgpt.com,Residential'));
+    expect(rules, contains('DOMAIN-SUFFIX,chatgpt.site,Residential'));
+    expect(rules, contains('DOMAIN-SUFFIX,chatgpt-team.site,Residential'));
     expect(rules, contains('DOMAIN,cdn.openaimerge.com,Residential'));
     expect(rules, contains('DOMAIN,cdn.workos.com,Residential'));
     expect(rules, contains('DOMAIN,challenges.cloudflare.com,Residential'));

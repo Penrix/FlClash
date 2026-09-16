@@ -5,6 +5,7 @@ This branch adds a private routing layer above subscription configuration withou
 Current first-stage goals:
 
 - keep ChatGPT routing deterministic in rule mode;
+- give ChatGPT and Codex an independent selector that can pin a stable node;
 - apply selected service routing by process/domain;
 - keep UAA on direct routing;
 - inject a Mihomo MRS ad/tracker rule provider;
@@ -15,6 +16,7 @@ Current first-stage goals:
 Self-review invariants:
 
 - private P0 rules stay ahead of subscription and standard/custom overwrite rules;
+- the private ChatGPT selector never nests itself when a generated config is rebuilt;
 - ChatGPT target inference never borrows a target merely because another enhanced service uses it;
 - rule-provider downloads avoid `url-test` groups because current Mihomo versions have a known provider-download edge case there;
 - process matching is forced only while at least one process-based app enhancement is enabled;
