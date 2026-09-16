@@ -312,7 +312,8 @@ String? inferPenrixProviderDownloadTarget(
       if (name == null || name.isEmpty) continue;
       final type = item['type']?.toString().toLowerCase() ?? '';
       groupTypes[name] = type;
-      if (type == 'select' || type == 'selector') {
+      if ((type == 'select' || type == 'selector') &&
+          name != penrixChatGptGroupName) {
         selectorNames.add(name);
       }
     }
