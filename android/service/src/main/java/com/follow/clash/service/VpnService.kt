@@ -9,6 +9,7 @@ import android.net.ProxyInfo
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.content.getSystemService
 import com.follow.clash.common.AccessControlMode
@@ -38,6 +39,7 @@ class VpnService : SystemVpnService(), ManagedService, VpnHealthSignalSink {
     private var tunRunning = false
     private var healthMonitor: VpnConnectionHealth? = null
     private val healthCoreRequestId = AtomicLong()
+    private val socketBindFailureLogAtMillis = AtomicLong()
 
     @Volatile
     private var healthUnderlyingNetwork: Network? = null
@@ -86,6 +88,45 @@ class VpnService : SystemVpnService(), ManagedService, VpnHealthSignalSink {
             ?.takeIf { it.isNotEmpty() }
             .orEmpty()
         return uidPackageNameMap.putIfAbsent(uid, packageName) ?: packageName
+    }
+
+    /**
+     * The Core asks this callback to keep each outbound socket out of the TUN. When a concrete
+     * Android underlying Network is known, bind the socket to that Network instead of only calling
+     * VpnService.protect(). This makes the actual socket routing match setUnderlyingNetworks().
+     *
+     * fromFd() duplicates the descriptor, so closing the ParcelFileDescriptor after bindSocket()
+     * does not close the Core-owned socket. If Android rejects the bind during a transition, fall
+     * back to protect(fd) and let the bounded network refresh/session reset establish fresh sockets.
+     */
+    private fun protectCoreSocket(fd: Int): Boolean {
+        val network = healthUnderlyingNetwork
+        if (network != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                ParcelFileDescriptor.fromFd(fd).use { duplicate ->
+                    network.bindSocket(duplicate.fileDescriptor)
+                }
+                return true
+            } catch (error: Exception) {
+                logSocketBindFailure(network, error)
+            }
+        }
+        return protect(fd)
+    }
+
+    private fun logSocketBindFailure(network: Network, error: Exception) {
+        val now = System.currentTimeMillis()
+        while (true) {
+            val previous = socketBindFailureLogAtMillis.get()
+            if (now - previous < SOCKET_BIND_FAILURE_LOG_INTERVAL_MILLIS) return
+            if (socketBindFailureLogAtMillis.compareAndSet(previous, now)) {
+                GlobalState.log(
+                    "VPN socket bind failed on $network; falling back to protect(): " +
+                        "${error.javaClass.simpleName}:${error.message.orEmpty()}",
+                )
+                return
+            }
+        }
     }
 
     private val VpnOptions.tunAddress
@@ -152,10 +193,9 @@ class VpnService : SystemVpnService(), ManagedService, VpnHealthSignalSink {
             configureAccessControl(options)
             setSession(getString(CommonR.string.app_name))
             setBlocking(false)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                // Tell Android which real non-VPN network backs this tunnel. Unlike a blind
-                // setUnderlyingNetworks call, the value comes from NetworkObserveModule's
-                // filtered INTERNET + NOT_VPN inventory and is refreshed on transitions.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                // This is deliberately coupled to protectCoreSocket(): only advertise a concrete
+                // underlying Network when Core sockets are actually bound to the same Network.
                 setUnderlyingNetworks(healthUnderlyingNetwork?.let { arrayOf(it) })
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -188,7 +228,7 @@ class VpnService : SystemVpnService(), ManagedService, VpnHealthSignalSink {
                 check(
                     Core.startTun(
                         fd = fd,
-                        protect = this::protect,
+                        protect = this::protectCoreSocket,
                         resolveUid = this::resolveUid,
                         resolvePackage = this::resolvePackage,
                         stack = options.stack,
@@ -359,7 +399,7 @@ class VpnService : SystemVpnService(), ManagedService, VpnHealthSignalSink {
     }
 
     private fun syncUnderlyingNetworkForVpn(network: Network?) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP_MR1) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
         if (!isTunnelRunningForHealth()) return
         runCatching {
             setUnderlyingNetworks(network?.let { arrayOf(it) })
@@ -478,6 +518,7 @@ class VpnService : SystemVpnService(), ManagedService, VpnHealthSignalSink {
         private const val ACTION_KEEP_ALIVE =
             "com.follow.clash.service.intent.action.PENRIX_KEEP_ALIVE"
         private const val HEALTH_CORE_METHOD_TIMEOUT_MILLIS = 3_000L
+        private const val SOCKET_BIND_FAILURE_LOG_INTERVAL_MILLIS = 30_000L
         private const val IPV4_ADDRESS = "172.19.0.1/30"
         private const val IPV6_ADDRESS = "fdfe:dcba:9876::1/126"
         private const val DNS = "172.19.0.2"
