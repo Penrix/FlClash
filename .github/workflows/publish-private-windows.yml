@@ -59,10 +59,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh release create penrix-private-20260916 \
+          set +e
+          output=$(gh release create penrix-private-20260916 \
             Penrix-Windows.zip \
             Penrix-Windows.zip.sha256 \
             --target "${{ steps.find.outputs.head-sha }}" \
             --title "Penrix private Windows 2026-09-16" \
             --notes "Personal FLClash build with an isolated, highest-priority ChatGPT and Codex routing selector. Built from ${{ steps.find.outputs.head-sha }}." \
-            --prerelease
+            --prerelease 2>&1)
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            message=${output//$'\n'/'%0A'}
+            echo "::error title=Release publish failed::$message"
+            exit "$status"
+          fi
