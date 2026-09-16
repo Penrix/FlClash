@@ -63,6 +63,7 @@ jobs:
           output=$(gh release create penrix-private-20260916 \
             Penrix-Windows.zip \
             Penrix-Windows.zip.sha256 \
+            --repo "${{ github.repository }}" \
             --target "${{ steps.find.outputs.head-sha }}" \
             --title "Penrix private Windows 2026-09-16" \
             --notes "Personal FLClash build with an isolated, highest-priority ChatGPT and Codex routing selector. Built from ${{ steps.find.outputs.head-sha }}." \
