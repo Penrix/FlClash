@@ -1,0 +1,68 @@
+name: publish-private-windows
+
+on:
+  push:
+    branches:
+      - penrix-private-network
+    paths:
+      - .github/workflows/publish-private-windows.yml
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find latest successful Windows build
+        id: find
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const response = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'private-windows-ci.yml',
+              branch: 'penrix-private-network',
+              status: 'success',
+              per_page: 1,
+            });
+            const run = response.data.workflow_runs[0];
+            if (!run) {
+              core.setFailed('No successful private Windows build was found.');
+              return;
+            }
+            core.setOutput('run-id', String(run.id));
+            core.setOutput('head-sha', run.head_sha);
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Penrix-Windows
+          path: dist
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.find.outputs.run-id }}
+          github-token: ${{ github.token }}
+
+      - name: Package and checksum
+        shell: bash
+        run: |
+          cd dist
+          zip -r ../Penrix-Windows.zip .
+          cd ..
+          sha256sum Penrix-Windows.zip > Penrix-Windows.zip.sha256
+
+      - name: Publish private Windows prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create penrix-private-20260916 \
+            Penrix-Windows.zip \
+            Penrix-Windows.zip.sha256 \
+            --target "${{ steps.find.outputs.head-sha }}" \
+            --title "Penrix private Windows 2026-09-16" \
+            --notes "Personal FLClash build with an isolated, highest-priority ChatGPT and Codex routing selector. Built from ${{ steps.find.outputs.head-sha }}." \
+            --prerelease
