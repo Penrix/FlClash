@@ -66,6 +66,23 @@ jobs:
           --private-run-number $env:GITHUB_RUN_NUMBER
           --private-run-attempt $env:GITHUB_RUN_ATTEMPT -v
 
+      - name: Brand private package filenames
+        shell: pwsh
+        run: |
+          Get-ChildItem ./dist -File | ForEach-Object {
+            if ($_.Name.StartsWith('FlClash-')) {
+              $privateName = 'Penrix-FlClash-Private-' + $_.Name.Substring('FlClash-'.Length)
+              Rename-Item -LiteralPath $_.FullName -NewName $privateName
+            }
+          }
+          $files = Get-ChildItem ./dist -File
+          if (-not $files -or ($files | Where-Object { $_.Name.StartsWith('FlClash-') })) {
+            throw 'Private package branding failed: upstream package names remain.'
+          }
+          if (-not ($files | Where-Object { $_.Name.StartsWith('Penrix-FlClash-Private-') })) {
+            throw 'Private package branding failed: no private package files were found.'
+          }
+
       - name: Upload Penrix Windows package
         uses: actions/upload-artifact@v4
         with:
@@ -96,7 +113,7 @@ jobs:
           $notes = @"
           Penrix private FlClash Windows build.
 
-          Side-by-side identity is isolated from upstream FlClash: separate installer AppId, executable name, application data subtree, helper service, helper port, and update channel.
+          Side-by-side identity is isolated from upstream FlClash: separate installer AppId, executable name, application data subtree, helper executable/service, helper port, package filenames, and update channel.
 
           Built from $env:GITHUB_SHA.
           "@
