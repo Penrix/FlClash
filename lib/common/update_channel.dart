@@ -2,9 +2,7 @@ const upstreamRepository = 'chen08209/FlClash';
 const penrixPrivateRepository = 'Penrix/FlClash';
 
 const isPenrixPrivateBuild = bool.fromEnvironment('PENRIX_PRIVATE_BUILD');
-const penrixPrivateRunNumber = int.fromEnvironment(
-  'PENRIX_PRIVATE_RUN_NUMBER',
-);
+const penrixPrivateRunNumber = int.fromEnvironment('PENRIX_PRIVATE_RUN_NUMBER');
 const penrixPrivateRunAttempt = int.fromEnvironment(
   'PENRIX_PRIVATE_RUN_ATTEMPT',
 );
@@ -46,10 +44,7 @@ Map<String, dynamic>? selectPenrixPrivateUpdate(
   required int currentRunNumber,
   required int currentRunAttempt,
 }) {
-  final current = PenrixPrivateReleaseId(
-    currentRunNumber,
-    currentRunAttempt,
-  );
+  final current = PenrixPrivateReleaseId(currentRunNumber, currentRunAttempt);
   Map<String, dynamic>? selected;
   PenrixPrivateReleaseId? selectedId;
 
@@ -59,9 +54,7 @@ Map<String, dynamic>? selectPenrixPrivateUpdate(
       (key, value) => MapEntry(key.toString(), value),
     );
     if (release['draft'] == true || release['prerelease'] != true) continue;
-    final id = PenrixPrivateReleaseId.tryParse(
-      release['tag_name']?.toString(),
-    );
+    final id = PenrixPrivateReleaseId.tryParse(release['tag_name']?.toString());
     if (id == null || id.compareTo(current) <= 0) continue;
     if (selectedId == null || id.compareTo(selectedId) > 0) {
       selected = release;

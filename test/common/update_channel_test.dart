@@ -66,10 +66,7 @@ void main() {
     });
 
     test('keeps official version text and labels private builds', () {
-      expect(
-        buildDisplayVersion('0.8.98', privateBuild: false),
-        '0.8.98',
-      );
+      expect(buildDisplayVersion('0.8.98', privateBuild: false), '0.8.98');
       expect(
         buildDisplayVersion(
           '0.8.98',
