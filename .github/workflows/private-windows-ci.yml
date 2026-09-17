@@ -102,7 +102,7 @@ jobs:
           $hash = (Get-FileHash Penrix-Windows.zip -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  Penrix-Windows.zip" | Set-Content Penrix-Windows.zip.sha256 -Encoding ascii
 
-      - name: Publish private Windows prerelease
+      - name: Create private Windows prerelease
         if: github.ref == 'refs/heads/penrix-private-network'
         shell: pwsh
         env:
@@ -117,18 +117,36 @@ jobs:
 
           Built from $env:GITHUB_SHA.
           "@
-
-          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag Penrix-Windows.zip Penrix-Windows.zip.sha256 --repo $env:GITHUB_REPOSITORY --clobber
-          } else {
-            gh release create $tag Penrix-Windows.zip Penrix-Windows.zip.sha256 `
-              --repo $env:GITHUB_REPOSITORY `
-              --target $env:GITHUB_SHA `
-              --title $title `
-              --notes $notes `
-              --prerelease
+          gh release create $tag `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA `
+            --title $title `
+            --notes $notes `
+            --prerelease
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
           }
+
+      - name: Upload private Windows ZIP asset
+        if: github.ref == 'refs/heads/penrix-private-network'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "penrix-private-windows-r$env:GITHUB_RUN_NUMBER-a$env:GITHUB_RUN_ATTEMPT"
+          gh release upload $tag Penrix-Windows.zip --repo $env:GITHUB_REPOSITORY --clobber
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Upload private Windows checksum asset
+        if: github.ref == 'refs/heads/penrix-private-network'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "penrix-private-windows-r$env:GITHUB_RUN_NUMBER-a$env:GITHUB_RUN_ATTEMPT"
+          gh release upload $tag Penrix-Windows.zip.sha256 --repo $env:GITHUB_REPOSITORY --clobber
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
