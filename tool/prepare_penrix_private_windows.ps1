@@ -70,9 +70,7 @@ Replace-Exact 'lib/common/constant.dart' `
     "const appHelperService = 'FlClashHelperService';" `
     "const appHelperService = 'PenrixFlClashHelperService';"
 Replace-Exact 'lib/common/constant.dart' "const packageName = 'com.follow.clash';" "const packageName = 'com.penrix.flclash';"
-Replace-Exact 'lib/common/constant.dart' `
-    "final windowsPipeName = '\\\\.\\pipe\\FlClashCore_${_randomPipeId()}';" `
-    "final windowsPipeName = '\\\\.\\pipe\\PenrixFlClashCore_${_randomPipeId()}';"
+Replace-Exact 'lib/common/constant.dart' 'FlClashCore_${_randomPipeId()}' 'PenrixFlClashCore_${_randomPipeId()}'
 Replace-Exact 'lib/common/constant.dart' 'const helperPort = 47890;' 'const helperPort = 47891;'
 
 Replace-Exact 'services/helper/src/service/windows.rs' `
@@ -88,31 +86,17 @@ Replace-Exact 'services/helper/src/service/hub.rs' `
 # Force private settings/state into a separate subtree even if path_provider
 # ever resolves the same Windows base directory as upstream.
 Replace-Exact 'lib/common/path.dart' `
-@'
-    supportDirectory().then((value) {
-      dataDir.complete(value);
-    });
-'@ `
-@'
-    supportDirectory().then((value) async {
-      final privateDir = Directory(join(value.path, 'PenrixPrivate'));
-      await privateDir.create(recursive: true);
-      dataDir.complete(privateDir);
-    });
-'@
+    'dataDir.complete(value);' `
+    "final privateDir = Directory(join(value.path, 'PenrixPrivate'));`n      await privateDir.create(recursive: true);`n      dataDir.complete(privateDir);"
 Replace-Exact 'lib/common/path.dart' `
-@'
-    cacheDirectory().then((value) {
-      cacheDir.complete(value);
-    });
-'@ `
-@'
-    cacheDirectory().then((value) async {
-      final privateDir = Directory(join(value.path, 'PenrixPrivate'));
-      await privateDir.create(recursive: true);
-      cacheDir.complete(privateDir);
-    });
-'@
+    'cacheDir.complete(value);' `
+    "final privateDir = Directory(join(value.path, 'PenrixPrivate'));`n      await privateDir.create(recursive: true);`n      cacheDir.complete(privateDir);"
+Replace-Exact 'lib/common/path.dart' `
+    'supportDirectory().then((value) {' `
+    'supportDirectory().then((value) async {'
+Replace-Exact 'lib/common/path.dart' `
+    'cacheDirectory().then((value) {' `
+    'cacheDirectory().then((value) async {'
 
 Write-Host 'Prepared isolated Penrix private Windows identity.'
 Write-Host '  exe:     PenrixFlClash.exe'
