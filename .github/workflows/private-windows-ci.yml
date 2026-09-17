@@ -4,7 +4,13 @@ on:
   push:
     branches:
       - penrix-private-network
+  pull_request:
+    branches:
+      - penrix-private-network
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 concurrency:
   group: private-windows-ci-${{ github.ref }}
@@ -50,11 +56,32 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Prepare isolated Penrix Windows identity
+        shell: pwsh
+        run: ./tool/prepare_penrix_private_windows.ps1
+
       - name: Build Penrix Windows package
         run: >-
           dart setup.dart windows --env stable --penrix-private
           --private-run-number $env:GITHUB_RUN_NUMBER
           --private-run-attempt $env:GITHUB_RUN_ATTEMPT -v
+
+      - name: Brand private package filenames
+        shell: pwsh
+        run: |
+          Get-ChildItem ./dist -File | ForEach-Object {
+            if ($_.Name.StartsWith('FlClash-')) {
+              $privateName = 'Penrix-FlClash-Private-' + $_.Name.Substring('FlClash-'.Length)
+              Rename-Item -LiteralPath $_.FullName -NewName $privateName
+            }
+          }
+          $files = Get-ChildItem ./dist -File
+          if (-not $files -or ($files | Where-Object { $_.Name.StartsWith('FlClash-') })) {
+            throw 'Private package branding failed: upstream package names remain.'
+          }
+          if (-not ($files | Where-Object { $_.Name.StartsWith('Penrix-FlClash-Private-') })) {
+            throw 'Private package branding failed: no private package files were found.'
+          }
 
       - name: Upload Penrix Windows package
         uses: actions/upload-artifact@v4
@@ -63,3 +90,45 @@ jobs:
           path: ./dist
           if-no-files-found: error
           overwrite: true
+
+      - name: Package private release bundle
+        if: github.ref == 'refs/heads/penrix-private-network'
+        shell: pwsh
+        run: |
+          if (Test-Path Penrix-Windows.zip) {
+            Remove-Item Penrix-Windows.zip -Force
+          }
+          Compress-Archive -Path ./dist/* -DestinationPath Penrix-Windows.zip -CompressionLevel Optimal
+          $hash = (Get-FileHash Penrix-Windows.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  Penrix-Windows.zip" | Set-Content Penrix-Windows.zip.sha256 -Encoding ascii
+
+      - name: Publish private Windows prerelease
+        if: github.ref == 'refs/heads/penrix-private-network'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "penrix-private-windows-r$env:GITHUB_RUN_NUMBER-a$env:GITHUB_RUN_ATTEMPT"
+          $title = "Penrix private Windows r$env:GITHUB_RUN_NUMBER-a$env:GITHUB_RUN_ATTEMPT"
+          $notes = @"
+          Penrix private FlClash Windows build.
+
+          Side-by-side identity is isolated from upstream FlClash: separate installer AppId, executable name, application data subtree, helper executable/service, helper port, package filenames, and update channel.
+
+          Built from $env:GITHUB_SHA.
+          "@
+
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag Penrix-Windows.zip Penrix-Windows.zip.sha256 --repo $env:GITHUB_REPOSITORY --clobber
+          } else {
+            gh release create $tag Penrix-Windows.zip Penrix-Windows.zip.sha256 `
+              --repo $env:GITHUB_REPOSITORY `
+              --target $env:GITHUB_SHA `
+              --title $title `
+              --notes $notes `
+              --prerelease
+          }
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
