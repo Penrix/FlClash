@@ -29,8 +29,8 @@ Replace-Exact 'windows/CMakeLists.txt' `
 # installed next to the private app must use the private identity because Dart
 # resolves it from appHelperService.
 Replace-Exact 'windows/CMakeLists.txt' `
-    'set(helper_dst "${INSTALL_BUNDLE_LIB_DIR}/FlClashHelperService.exe")' `
-    'set(helper_dst "${INSTALL_BUNDLE_LIB_DIR}/PenrixFlClashHelperService.exe")'
+    'set(helper_dst \"${INSTALL_BUNDLE_LIB_DIR}/FlClashHelperService.exe\")' `
+    'set(helper_dst \"${INSTALL_BUNDLE_LIB_DIR}/PenrixFlClashHelperService.exe\")'
 Replace-Exact 'windows/CMakeLists.txt' `
     'Get-Process -Name FlClashHelperService' `
     'Get-Process -Name PenrixFlClashHelperService'
