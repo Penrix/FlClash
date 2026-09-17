@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - penrix-private-network
+  pull_request:
+    branches:
+      - penrix-private-network
   workflow_dispatch:
 
 permissions:
