@@ -469,19 +469,26 @@ class VpnService : SystemVpnService(), ManagedService, VpnHealthSignalSink {
         tunRunning
     }
 
+    /**
+     * Recreate the local Android TUN/Core data path. This deliberately also works when the previous
+     * rebuild already stopped the old TUN but failed before a new one became usable. The health
+     * monitor can therefore keep repairing a service that is alive with tunRunning=false instead of
+     * treating that state as terminal.
+     */
     internal fun rebuildTunnelForHealth(): Boolean = synchronized(lifecycleLock) {
-        if (!isTunnelRunningForHealth()) {
-            return@synchronized false
-        }
         val options = ServiceConfig.vpnOptions ?: return@synchronized false
         runCatching {
-            GlobalState.log("VPN health: local TUN rebuild started")
-            stopTun()
+            if (isTunnelRunningForHealth()) {
+                GlobalState.log("VPN health: local TUN rebuild started")
+                stopTun()
+            } else {
+                GlobalState.log("VPN health: local TUN recovery started from stopped state")
+            }
             handleStart(options)
-            GlobalState.log("VPN health: local TUN rebuild completed")
+            GlobalState.log("VPN health: local TUN recovery completed")
             true
         }.onFailure { error ->
-            GlobalState.log("VPN health: local TUN rebuild error: $error")
+            GlobalState.log("VPN health: local TUN recovery error: $error")
         }.getOrDefault(false)
     }
 

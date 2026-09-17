@@ -27,7 +27,6 @@ internal interface VpnHealthSignalSink {
 internal enum class VpnRecoveryAction {
     NONE,
     REBUILD_TUN,
-    STUCK,
 }
 
 internal data class VpnHealthDecision(
@@ -36,23 +35,26 @@ internal data class VpnHealthDecision(
 )
 
 /**
- * Pure recovery policy: a single slow request never rebuilds the tunnel. Three consecutive
- * data-plane failures trigger one local TUN rebuild. If the rebuilt tunnel still fails three times,
- * stop churning and leave a clear diagnostic breadcrumb for the next recovery layer.
+ * Pure recovery policy. A single slow request never rebuilds the tunnel. Repeated data-plane
+ * failures request a local TUN rebuild, and repeated rebuilds are followed by an increasingly long
+ * probe delay. The delay is capped instead of ending in a permanent STUCK state, so an unattended
+ * phone can eventually recover after Android's real network becomes usable again.
  */
 internal class VpnHealthRecoveryPolicy(
     private val failuresBeforeRecovery: Int = 3,
+    private val recoveryProbeDelaysMillis: List<Long> = DEFAULT_RECOVERY_PROBE_DELAYS_MILLIS,
 ) {
     private var consecutiveFailures = 0
-    private var tunRecoveryAttempted = false
-    private var stuckReported = false
+    private var recoveryAttempts = 0
 
     init {
         require(failuresBeforeRecovery > 0)
+        require(recoveryProbeDelaysMillis.isNotEmpty())
+        require(recoveryProbeDelaysMillis.all { it > 0 })
     }
 
     fun onSuccess(): Boolean {
-        val hadProblem = consecutiveFailures > 0 || tunRecoveryAttempted || stuckReported
+        val hadProblem = consecutiveFailures > 0 || recoveryAttempts > 0
         reset()
         return hadProblem
     }
@@ -67,21 +69,33 @@ internal class VpnHealthRecoveryPolicy(
 
         val count = consecutiveFailures
         consecutiveFailures = 0
-        if (!tunRecoveryAttempted) {
-            tunRecoveryAttempted = true
-            return VpnHealthDecision(VpnRecoveryAction.REBUILD_TUN, count)
-        }
-        if (!stuckReported) {
-            stuckReported = true
-            return VpnHealthDecision(VpnRecoveryAction.STUCK, count)
-        }
-        return VpnHealthDecision(VpnRecoveryAction.NONE, count)
+        return VpnHealthDecision(VpnRecoveryAction.REBUILD_TUN, count)
+    }
+
+    /**
+     * Records an actual local recovery attempt and returns when the next probe/recovery may run.
+     * The first rebuild is checked quickly; persistent failure backs off to 30s, 2m, then 5m and
+     * stays at 5m until success or a real underlying-network change resets the policy.
+     */
+    fun onRecoveryAttempted(): Long {
+        val index = recoveryAttempts.coerceAtMost(recoveryProbeDelaysMillis.lastIndex)
+        val delayMillis = recoveryProbeDelaysMillis[index]
+        recoveryAttempts++
+        return delayMillis
     }
 
     private fun reset() {
         consecutiveFailures = 0
-        tunRecoveryAttempted = false
-        stuckReported = false
+        recoveryAttempts = 0
+    }
+
+    private companion object {
+        val DEFAULT_RECOVERY_PROBE_DELAYS_MILLIS = listOf(
+            4_000L,
+            30_000L,
+            120_000L,
+            300_000L,
+        )
     }
 }
 
@@ -98,13 +112,15 @@ private data class HealthProbeResult(
 )
 
 /**
- * Verifies the actual VPN data path rather than process liveness. It only probes after meaningful
- * lifecycle events (start, underlying-network change, resume) and retries after a failure; there is
- * no permanent polling loop and no wakelock.
+ * Verifies the actual VPN data path rather than process liveness. Healthy operation is event-driven:
+ * start, underlying-network change and resume trigger probes, with no steady-state polling loop and
+ * no wakelock. Only while the data path is demonstrably unhealthy does recovery continue on a
+ * bounded backoff schedule.
  *
  * A wake or network transition first gets a bounded readiness window. Once Android reports a real
- * validated non-VPN network, stale Core sessions are reset before probing. This keeps recovery cheap
- * in the common case while still retaining the bounded TUN rebuild for a genuinely dead data path.
+ * validated non-VPN network, stale Core sessions are reset before probing. Repeated failures rebuild
+ * the local TUN/Core data path. A failed rebuild is not terminal: a missing TUN is repaired again on
+ * the same capped recovery schedule.
  */
 internal class VpnConnectionHealth(private val service: VpnService) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -218,7 +234,34 @@ internal class VpnConnectionHealth(private val service: VpnService) {
             ) ?: return@launch
 
             probeMutex.withLock {
-                if (!isSnapshotCurrent(snapshot) || !service.isTunnelRunningForHealth()) {
+                if (!isSnapshotCurrent(snapshot)) {
+                    return@withLock
+                }
+
+                // A failed rebuild can leave the Android service alive while Core no longer owns a
+                // TUN. That state used to make the next health probe return forever. Treat it as a
+                // recoverable data-path failure and keep attempting a local start with capped delay.
+                if (!service.isTunnelRunningForHealth()) {
+                    GlobalState.log("VPN health: TUN is missing; attempting local data-path recovery")
+                    val rebuilt = service.rebuildTunnelForHealth()
+                    val nextDelay = synchronized(stateLock) { policy.onRecoveryAttempted() }
+                    if (rebuilt) {
+                        GlobalState.log("VPN health: missing TUN recovered")
+                        scheduleProbe(
+                            reason = "post-missing-tun-recovery",
+                            delayMillis = nextDelay,
+                            waitForNetwork = true,
+                        )
+                    } else {
+                        GlobalState.log(
+                            "VPN health: missing TUN recovery failed; retrying in ${nextDelay}ms",
+                        )
+                        scheduleProbe(
+                            reason = "missing-tun-retry",
+                            delayMillis = nextDelay,
+                            waitForNetwork = true,
+                        )
+                    }
                     return@withLock
                 }
 
@@ -273,24 +316,29 @@ internal class VpnConnectionHealth(private val service: VpnService) {
                     }
 
                     VpnRecoveryAction.REBUILD_TUN -> {
-                        // Do one more cheap stale-session cleanup immediately before the more
-                        // expensive TUN rebuild. Both operations are bounded and event-driven.
+                        // Do one more cheap stale-session cleanup immediately before recreating the
+                        // complete local TUN/Core data path. If the fault persists, later rebuilds
+                        // are spaced out by the recovery policy instead of ending in STUCK.
                         service.resetConnectionsForHealth("pre-tun-rebuild:$reason")
                         GlobalState.log("VPN health: rebuilding TUN after repeated data-path failure")
                         val rebuilt = service.rebuildTunnelForHealth()
+                        val nextDelay = synchronized(stateLock) { policy.onRecoveryAttempted() }
                         if (rebuilt) {
-                            scheduleProbe("post-tun-rebuild", POST_RECOVERY_PROBE_DELAY_MILLIS)
+                            scheduleProbe(
+                                reason = "post-tun-rebuild",
+                                delayMillis = nextDelay,
+                                waitForNetwork = true,
+                            )
                         } else {
-                            GlobalState.log("VPN health: TUN rebuild failed")
-                            scheduleProbe("tun-rebuild-failed", FAILURE_RETRY_DELAY_MILLIS)
+                            GlobalState.log(
+                                "VPN health: TUN rebuild failed; recovery will retry in ${nextDelay}ms",
+                            )
+                            scheduleProbe(
+                                reason = "tun-rebuild-failed",
+                                delayMillis = nextDelay,
+                                waitForNetwork = true,
+                            )
                         }
-                    }
-
-                    VpnRecoveryAction.STUCK -> {
-                        GlobalState.log(
-                            "VPN health: data path is still unavailable after stale-session reset " +
-                                "and TUN rebuild; leaving the service running for diagnosis",
-                        )
                     }
                 }
             }
@@ -402,7 +450,6 @@ internal class VpnConnectionHealth(private val service: VpnService) {
         const val NETWORK_PROBE_DELAY_MILLIS = 1_500L
         const val RESUME_PROBE_DELAY_MILLIS = 750L
         const val FAILURE_RETRY_DELAY_MILLIS = 5_000L
-        const val POST_RECOVERY_PROBE_DELAY_MILLIS = 4_000L
         const val CONNECTION_RESET_SETTLE_MILLIS = 300L
         const val NETWORK_READY_ATTEMPTS = 8
         const val NETWORK_READY_RETRY_DELAY_MILLIS = 750L
