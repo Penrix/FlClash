@@ -1,11 +1,11 @@
 name: publish-private-windows
 
 on:
-  push:
-    branches:
-      - penrix-private-network
-    paths:
-      - .github/workflows/publish-private-windows.yml
+  workflow_run:
+    workflows:
+      - private-windows-ci
+    types:
+      - completed
   workflow_dispatch:
 
 permissions:
@@ -14,6 +14,10 @@ permissions:
 
 jobs:
   publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'penrix-private-network')
     runs-on: ubuntu-latest
     steps:
       - name: Find latest successful Windows build
@@ -21,21 +25,26 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const response = await github.rest.actions.listWorkflowRuns({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'private-windows-ci.yml',
-              branch: 'penrix-private-network',
-              status: 'success',
-              per_page: 1,
-            });
-            const run = response.data.workflow_runs[0];
+            let run = context.payload.workflow_run;
+            if (!run) {
+              const response = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'private-windows-ci.yml',
+                branch: 'penrix-private-network',
+                status: 'success',
+                per_page: 1,
+              });
+              run = response.data.workflow_runs[0];
+            }
             if (!run) {
               core.setFailed('No successful private Windows build was found.');
               return;
             }
             core.setOutput('run-id', String(run.id));
             core.setOutput('head-sha', run.head_sha);
+            core.setOutput('run-number', String(run.run_number));
+            core.setOutput('run-attempt', String(run.run_attempt));
 
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
@@ -57,17 +66,31 @@ jobs:
       - name: Publish private Windows prerelease
         env:
           GH_TOKEN: ${{ github.token }}
+          PRIVATE_RUN_NUMBER: ${{ steps.find.outputs.run-number }}
+          PRIVATE_RUN_ATTEMPT: ${{ steps.find.outputs.run-attempt }}
+          PRIVATE_HEAD_SHA: ${{ steps.find.outputs.head-sha }}
         shell: bash
         run: |
+          tag="penrix-private-windows-r${PRIVATE_RUN_NUMBER}-a${PRIVATE_RUN_ATTEMPT}"
+          title="Penrix private Windows r${PRIVATE_RUN_NUMBER}-a${PRIVATE_RUN_ATTEMPT}"
+          notes="Personal FlClash build with an isolated, highest-priority ChatGPT and Codex routing selector. Built from ${PRIVATE_HEAD_SHA}."
           set +e
-          output=$(gh release create penrix-private-20260916 \
-            Penrix-Windows.zip \
-            Penrix-Windows.zip.sha256 \
-            --repo "${{ github.repository }}" \
-            --target "${{ steps.find.outputs.head-sha }}" \
-            --title "Penrix private Windows 2026-09-16" \
-            --notes "Personal FLClash build with an isolated, highest-priority ChatGPT and Codex routing selector. Built from ${{ steps.find.outputs.head-sha }}." \
-            --prerelease 2>&1)
+          if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            output=$(gh release upload "$tag" \
+              Penrix-Windows.zip \
+              Penrix-Windows.zip.sha256 \
+              --repo "${{ github.repository }}" \
+              --clobber 2>&1)
+          else
+            output=$(gh release create "$tag" \
+              Penrix-Windows.zip \
+              Penrix-Windows.zip.sha256 \
+              --repo "${{ github.repository }}" \
+              --target "$PRIVATE_HEAD_SHA" \
+              --title "$title" \
+              --notes "$notes" \
+              --prerelease 2>&1)
+          fi
           status=$?
           set -e
           if [ "$status" -ne 0 ]; then

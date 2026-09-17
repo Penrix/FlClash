@@ -25,6 +25,30 @@ void main() {
       expect(setup.createBuildEnvironment('dev'), {'APP_ENV': 'dev'});
     });
 
+    test('adds a reproducible Penrix private build identity', () {
+      expect(
+        setup.createBuildEnvironment(
+          'stable',
+          penrixPrivate: true,
+          privateRunNumber: 123,
+          privateRunAttempt: 2,
+        ),
+        {
+          'APP_ENV': 'stable',
+          'PENRIX_PRIVATE_BUILD': 'true',
+          'PENRIX_PRIVATE_RUN_NUMBER': '123',
+          'PENRIX_PRIVATE_RUN_ATTEMPT': '2',
+        },
+      );
+    });
+
+    test('rejects a private build without a positive identity', () {
+      expect(
+        () => setup.createBuildEnvironment('stable', penrixPrivate: true),
+        throwsArgumentError,
+      );
+    });
+
     test('omits verbose from flutter build args by default', () {
       final args = setup.createFlutterBuildArgs(
         platform: 'android',
