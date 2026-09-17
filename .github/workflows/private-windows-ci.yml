@@ -13,7 +13,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: private-windows-ci-${{ github.ref }}
+  group: private-windows-ci-v2-${{ github.ref }}
   cancel-in-progress: true
 
 env:
