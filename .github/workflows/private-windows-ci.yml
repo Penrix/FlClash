@@ -4,9 +4,17 @@ on:
   push:
     branches:
       - penrix-private-network
+    paths-ignore:
+      - 'android/**'
+      - '.github/workflows/private-android-ci.yml'
+      - '**/*.md'
   pull_request:
     branches:
       - penrix-private-network
+    paths-ignore:
+      - 'android/**'
+      - '.github/workflows/private-android-ci.yml'
+      - '**/*.md'
   workflow_dispatch:
 
 permissions:
