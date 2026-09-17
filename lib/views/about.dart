@@ -138,7 +138,9 @@ class AboutView extends ConsumerWidget {
                             style: Theme.of(context).textTheme.headlineSmall,
                           ),
                           Text(
-                            globalState.packageInfo.version,
+                            buildDisplayVersion(
+                              globalState.packageInfo.version,
+                            ),
                             style: Theme.of(context).textTheme.labelLarge,
                           ),
                         ],

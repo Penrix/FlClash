@@ -51,7 +51,10 @@ jobs:
         run: flutter pub get
 
       - name: Build Penrix Windows package
-        run: dart setup.dart windows --env stable -v
+        run: >-
+          dart setup.dart windows --env stable --penrix-private
+          --private-run-number $env:GITHUB_RUN_NUMBER
+          --private-run-attempt $env:GITHUB_RUN_ATTEMPT -v
 
       - name: Upload Penrix Windows package
         uses: actions/upload-artifact@v4
