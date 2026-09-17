@@ -25,6 +25,37 @@ Replace-Exact 'windows/CMakeLists.txt' `
     'set(BINARY_NAME "FlClash")' `
     'set(BINARY_NAME "PenrixFlClash")'
 
+# The source helper artifact keeps the upstream build-hook name, but the file
+# installed next to the private app must use the private identity because Dart
+# resolves it from appHelperService.
+Replace-Exact 'windows/CMakeLists.txt' `
+    'set(helper_dst "${INSTALL_BUNDLE_LIB_DIR}/FlClashHelperService.exe")' `
+    'set(helper_dst "${INSTALL_BUNDLE_LIB_DIR}/PenrixFlClashHelperService.exe")'
+Replace-Exact 'windows/CMakeLists.txt' `
+    'Get-Process -Name FlClashHelperService' `
+    'Get-Process -Name PenrixFlClashHelperService'
+Replace-Exact 'windows/CMakeLists.txt' `
+@'
+install(FILES
+  "${CORE_ARTIFACTS_DIR}/FlClashCore.exe"
+  "${CORE_ARTIFACTS_DIR}/FlClashHelperService.exe"
+  "${CORE_ARTIFACTS_DIR}/manifest.json"
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
+'@ `
+@'
+install(FILES
+  "${CORE_ARTIFACTS_DIR}/FlClashCore.exe"
+  "${CORE_ARTIFACTS_DIR}/manifest.json"
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
+install(FILES
+  "${CORE_ARTIFACTS_DIR}/FlClashHelperService.exe"
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  RENAME "PenrixFlClashHelperService.exe"
+  COMPONENT Runtime)
+'@
+
 Replace-Exact 'windows/runner/Runner.rc' `
     'VALUE "CompanyName", "com.follow" "\0"' `
     'VALUE "CompanyName", "Penrix" "\0"'
@@ -100,6 +131,7 @@ Replace-Exact 'lib/common/path.dart' `
 
 Write-Host 'Prepared isolated Penrix private Windows identity.'
 Write-Host '  exe:     PenrixFlClash.exe'
+Write-Host '  helper:  PenrixFlClashHelperService.exe'
 Write-Host '  service: PenrixFlClashHelperService'
 Write-Host '  port:    47891'
 Write-Host '  AppId:   DC58A175-857C-44ED-A3F0-00813F0307B7'
