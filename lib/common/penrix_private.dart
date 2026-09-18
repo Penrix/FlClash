@@ -149,7 +149,7 @@ Map<String, dynamic> buildPenrixPrivateNetworkConfig(
       ? routingRules!
       : existingRules;
   final proxyTarget = inferPenrixProxyTarget(config, targetRules);
-  _updateChatGptGroup(config, proxyTarget, enabled: settings.chatGpt);
+  _removeLegacyChatGptGroup(config);
   final providerProxyTarget = inferPenrixProviderDownloadTarget(
     config,
     proxyTarget,
@@ -207,15 +207,10 @@ List<String> buildPenrixPrivateRulePrefix(
   PenrixPrivateSettings settings = const PenrixPrivateSettings(),
 }) {
   final proxyTarget = inferPenrixProxyTarget(config, routingRules);
-  final hasChatGptGroup =
-      config['proxy-groups'] is List &&
-      (config['proxy-groups'] as List).whereType<Map>().any(
-        (group) => group['name'] == penrixChatGptGroupName,
-      );
   return _privateRulePrefix(
     proxyTarget,
     settings,
-    chatGptTarget: hasChatGptGroup ? penrixChatGptGroupName : proxyTarget,
+    chatGptTarget: proxyTarget,
   );
 }
 
@@ -448,61 +443,14 @@ List<String> _privateSiteRules(String target) => [
   'DOMAIN-SUFFIX,hotupub.net,$target',
 ];
 
-void _updateChatGptGroup(
-  Map<String, dynamic> config,
-  String? proxyTarget, {
-  required bool enabled,
-}) {
+void _removeLegacyChatGptGroup(Map<String, dynamic> config) {
   final sourceGroups = config['proxy-groups'];
-  final groups = sourceGroups is List
-      ? sourceGroups
-            .whereType<Map>()
-            .map((group) => Map<String, dynamic>.from(group))
-            .where((group) => group['name'] != penrixChatGptGroupName)
-            .toList()
-      : <Map<String, dynamic>>[];
-  if (!enabled || proxyTarget == null) {
-    config['proxy-groups'] = groups;
-    return;
-  }
-
-  final members = <String>[];
-  final seen = <String>{};
-  void addMember(dynamic value) {
-    final name = value?.toString().trim();
-    if (name == null ||
-        name.isEmpty ||
-        name == penrixChatGptGroupName ||
-        _reservedTargets.contains(name.toUpperCase()) ||
-        !seen.add(name)) {
-      return;
-    }
-    members.add(name);
-  }
-
-  addMember(proxyTarget);
-  for (final group in groups) {
-    if (group['name'] != proxyTarget || group['proxies'] is! List) continue;
-    for (final member in group['proxies'] as List) {
-      addMember(member);
-    }
-  }
-  final sourceProxies = config['proxies'];
-  if (sourceProxies is List) {
-    for (final proxy in sourceProxies.whereType<Map>()) {
-      addMember(proxy['name']);
-    }
-  }
-
-  config['proxy-groups'] = [
-    <String, dynamic>{
-      'name': penrixChatGptGroupName,
-      'type': 'select',
-      'proxies': members,
-      'default-selected': proxyTarget,
-    },
-    ...groups,
-  ];
+  if (sourceGroups is! List) return;
+  config['proxy-groups'] = sourceGroups
+      .whereType<Map>()
+      .map((group) => Map<String, dynamic>.from(group))
+      .where((group) => group['name'] != penrixChatGptGroupName)
+      .toList();
 }
 
 List<String> _asStringList(dynamic value) {
