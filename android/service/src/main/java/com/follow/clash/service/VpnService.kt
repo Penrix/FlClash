@@ -3,10 +3,13 @@ package com.follow.clash.service
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.ProxyInfo
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.content.getSystemService
 import com.follow.clash.common.AccessControlMode
@@ -21,17 +24,40 @@ import com.follow.clash.service.models.toCIDR
 import com.follow.clash.service.modules.ServiceModules
 import java.net.InetSocketAddress
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONObject
 import android.net.VpnService as SystemVpnService
 
-class VpnService : SystemVpnService(), ManagedService {
+class VpnService : SystemVpnService(), ManagedService, VpnHealthSignalSink {
     private val modules = ServiceModules(this)
     private val binder = LocalBinder()
+    private val lifecycleLock = Any()
     private val tunLock = Any()
     private var tunRunning = false
+    private var healthMonitor: VpnConnectionHealth? = null
+    private val healthCoreRequestId = AtomicLong()
+    private val socketBindFailureLogAtMillis = AtomicLong()
+
+    @Volatile
+    private var healthUnderlyingNetwork: Network? = null
+
+    @Volatile
+    private var healthUnderlyingValidated = false
+
+    @Volatile
+    private var healthUnderlyingDescription = "none"
+
+    @Volatile
+    private var healthDeviceSuspended = false
 
     override fun onDestroy() {
         try {
-            cleanup()
+            synchronized(lifecycleLock) {
+                cleanup()
+            }
         } finally {
             super.onDestroy()
         }
@@ -62,6 +88,45 @@ class VpnService : SystemVpnService(), ManagedService {
             ?.takeIf { it.isNotEmpty() }
             .orEmpty()
         return uidPackageNameMap.putIfAbsent(uid, packageName) ?: packageName
+    }
+
+    /**
+     * The Core asks this callback to keep each outbound socket out of the TUN. When a concrete
+     * Android underlying Network is known, bind the socket to that Network instead of only calling
+     * VpnService.protect(). This makes the actual socket routing match setUnderlyingNetworks().
+     *
+     * fromFd() duplicates the descriptor, so closing the ParcelFileDescriptor after bindSocket()
+     * does not close the Core-owned socket. If Android rejects the bind during a transition, fall
+     * back to protect(fd) and let the bounded network refresh/session reset establish fresh sockets.
+     */
+    private fun protectCoreSocket(fd: Int): Boolean {
+        val network = healthUnderlyingNetwork
+        if (network != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                ParcelFileDescriptor.fromFd(fd).use { duplicate ->
+                    network.bindSocket(duplicate.fileDescriptor)
+                }
+                return true
+            } catch (error: Exception) {
+                logSocketBindFailure(network, error)
+            }
+        }
+        return protect(fd)
+    }
+
+    private fun logSocketBindFailure(network: Network, error: Exception) {
+        val now = System.currentTimeMillis()
+        while (true) {
+            val previous = socketBindFailureLogAtMillis.get()
+            if (now - previous < SOCKET_BIND_FAILURE_LOG_INTERVAL_MILLIS) return
+            if (socketBindFailureLogAtMillis.compareAndSet(previous, now)) {
+                GlobalState.log(
+                    "VPN socket bind failed on $network; falling back to protect(): " +
+                        "${error.javaClass.simpleName}:${error.message.orEmpty()}",
+                )
+                return
+            }
+        }
     }
 
     private val VpnOptions.tunAddress
@@ -105,10 +170,14 @@ class VpnService : SystemVpnService(), ManagedService {
         }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Android starts always-on VPN through this callback instead of FlClash's bound-service
-        // path. Notify the app layer so it can restore Core and fully initialize the VPN service.
-        notifyVpnStartRequested()
-        return super.onStartCommand(intent, flags, startId)
+        // Android starts Always-on VPN (and recreates START_STICKY services after a process kill)
+        // through this callback instead of Penrix's bound-service path. Re-enter the app state
+        // machine only for those system starts. A successful normal start marks this same service
+        // as started using ACTION_KEEP_ALIVE below and must not recursively start the profile.
+        if (intent?.action != ACTION_KEEP_ALIVE) {
+            notifyVpnStartRequested()
+        }
+        return START_STICKY
     }
 
     override fun onRevoke() {
@@ -124,6 +193,11 @@ class VpnService : SystemVpnService(), ManagedService {
             configureAccessControl(options)
             setSession(getString(CommonR.string.app_name))
             setBlocking(false)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                // This is deliberately coupled to protectCoreSocket(): only advertise a concrete
+                // underlying Network when Core sockets are actually bound to the same Network.
+                setUnderlyingNetworks(healthUnderlyingNetwork?.let { arrayOf(it) })
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 setMetered(false)
             }
@@ -154,7 +228,7 @@ class VpnService : SystemVpnService(), ManagedService {
                 check(
                     Core.startTun(
                         fd = fd,
-                        protect = this::protect,
+                        protect = this::protectCoreSocket,
                         resolveUid = this::resolveUid,
                         resolvePackage = this::resolvePackage,
                         stack = options.stack,
@@ -247,17 +321,178 @@ class VpnService : SystemVpnService(), ManagedService {
         }
     }
 
-    override fun start() {
+    override fun start() = synchronized(lifecycleLock) {
         try {
             modules.start()
             handleStart(requireNotNull(ServiceConfig.vpnOptions) { "VPN options are missing" })
+            markStartedAndSticky()
+            startHealthMonitor()
         } catch (error: Exception) {
-            stop()
+            cleanup()
+            stopSelf()
             throw error
         }
     }
 
-    override fun stop() {
+    /**
+     * The normal Penrix path creates this service through bindService(BIND_AUTO_CREATE). A bound
+     * foreground service is still allowed to die when its binding/process disappears. Once the
+     * notification and TUN are both alive, explicitly start the existing service as well so Android
+     * keeps it in the started state and can recreate it with START_STICKY after a process kill.
+     */
+    private fun markStartedAndSticky() {
+        val intent = Intent(this, VpnService::class.java).apply {
+            action = ACTION_KEEP_ALIVE
+        }
+        startService(intent)
+    }
+
+    private fun startHealthMonitor() {
+        healthMonitor?.stop()
+        healthMonitor = VpnConnectionHealth(this).also { monitor ->
+            monitor.start(
+                network = healthUnderlyingNetwork,
+                validated = healthUnderlyingValidated,
+                description = healthUnderlyingDescription,
+                suspended = healthDeviceSuspended,
+            )
+        }
+    }
+
+    override fun onUnderlyingNetworkChanged(
+        network: Network?,
+        validated: Boolean,
+        description: String,
+    ) {
+        healthUnderlyingNetwork = network
+        healthUnderlyingValidated = validated
+        healthUnderlyingDescription = description
+        syncUnderlyingNetworkForVpn(network)
+        healthMonitor?.onUnderlyingNetworkChanged(network, validated, description)
+    }
+
+    override fun onDeviceSuspensionChanged(suspended: Boolean) {
+        healthDeviceSuspended = suspended
+        if (!suspended) {
+            modules.refreshUnderlyingNetwork("resume")
+        }
+        healthMonitor?.onDeviceSuspensionChanged(suspended)
+    }
+
+    internal fun requestUnderlyingNetworkRefreshForHealth(reason: String) {
+        modules.refreshUnderlyingNetwork(reason)
+    }
+
+    internal fun isUnderlyingNetworkReadyForHealth(network: Network?): Boolean {
+        network ?: return false
+        val capabilities = connectivity?.getNetworkCapabilities(network) ?: return false
+        if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return false
+        if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return false
+        if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return false
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+            !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+        ) {
+            return false
+        }
+        return true
+    }
+
+    private fun syncUnderlyingNetworkForVpn(network: Network?) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        if (!isTunnelRunningForHealth()) return
+        runCatching {
+            setUnderlyingNetworks(network?.let { arrayOf(it) })
+        }.onSuccess { applied ->
+            if (!applied) {
+                GlobalState.log("VPN health: Android rejected underlying-network update: $network")
+            }
+        }.onFailure { error ->
+            GlobalState.log("VPN health: unable to update Android underlying network: $error")
+        }
+    }
+
+    internal suspend fun resetConnectionsForHealth(reason: String): Boolean {
+        if (!isTunnelRunningForHealth()) return false
+        val reset = invokeHealthBooleanMethod("resetConnections")
+        if (reset) {
+            GlobalState.log("VPN health: Core connections reset ($reason)")
+            return true
+        }
+
+        // Older/custom cores may not implement the stronger reset primitive even though the app
+        // knows about it. closeConnections is the existing lower-level fallback and is harmless if
+        // resetConnections already failed without applying anything.
+        val closed = invokeHealthBooleanMethod("closeConnections")
+        GlobalState.log(
+            if (closed) {
+                "VPN health: Core connections closed via fallback ($reason)"
+            } else {
+                "VPN health: Core connection reset did not complete ($reason)"
+            },
+        )
+        return closed
+    }
+
+    private suspend fun invokeHealthBooleanMethod(method: String): Boolean {
+        val request = JSONObject()
+            .put("id", "penrix-health-${healthCoreRequestId.incrementAndGet()}")
+            .put("method", method)
+            .put("arguments", JSONObject.NULL)
+            .toString()
+
+        val response = withTimeoutOrNull(HEALTH_CORE_METHOD_TIMEOUT_MILLIS) {
+            suspendCancellableCoroutine<String> { continuation ->
+                runCatching {
+                    Core.invokeMethod(request) { result ->
+                        if (continuation.isActive) {
+                            continuation.resume(result.orEmpty())
+                        }
+                    }
+                }.onFailure {
+                    if (continuation.isActive) {
+                        continuation.resume("")
+                    }
+                }
+            }
+        } ?: return false
+
+        if (response.isBlank()) return false
+        return runCatching {
+            val json = JSONObject(response)
+            val error = json.opt("error")
+            (error == null || error == JSONObject.NULL) && json.optBoolean("result", false)
+        }.getOrDefault(false)
+    }
+
+    internal fun isTunnelRunningForHealth(): Boolean = synchronized(tunLock) {
+        tunRunning
+    }
+
+    /**
+     * Recreate the local Android TUN/Core data path. This deliberately also works when the previous
+     * rebuild already stopped the old TUN but failed before a new one became usable. The health
+     * monitor can therefore keep repairing a service that is alive with tunRunning=false instead of
+     * treating that state as terminal.
+     */
+    internal fun rebuildTunnelForHealth(): Boolean = synchronized(lifecycleLock) {
+        val options = ServiceConfig.vpnOptions ?: return@synchronized false
+        runCatching {
+            if (isTunnelRunningForHealth()) {
+                GlobalState.log("VPN health: local TUN rebuild started")
+                stopTun()
+            } else {
+                GlobalState.log("VPN health: local TUN recovery started from stopped state")
+            }
+            handleStart(options)
+            GlobalState.log("VPN health: local TUN recovery completed")
+            true
+        }.onFailure { error ->
+            GlobalState.log("VPN health: local TUN recovery error: $error")
+        }.getOrDefault(false)
+    }
+
+    override fun stop() = synchronized(lifecycleLock) {
         try {
             cleanup()
         } finally {
@@ -266,6 +501,8 @@ class VpnService : SystemVpnService(), ManagedService {
     }
 
     private fun cleanup() {
+        healthMonitor?.stop()
+        healthMonitor = null
         try {
             modules.stop()
         } finally {
@@ -285,6 +522,10 @@ class VpnService : SystemVpnService(), ManagedService {
     }
 
     companion object {
+        private const val ACTION_KEEP_ALIVE =
+            "com.follow.clash.service.intent.action.PENRIX_KEEP_ALIVE"
+        private const val HEALTH_CORE_METHOD_TIMEOUT_MILLIS = 3_000L
+        private const val SOCKET_BIND_FAILURE_LOG_INTERVAL_MILLIS = 30_000L
         private const val IPV4_ADDRESS = "172.19.0.1/30"
         private const val IPV6_ADDRESS = "fdfe:dcba:9876::1/126"
         private const val DNS = "172.19.0.2"

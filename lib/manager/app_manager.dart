@@ -109,6 +109,12 @@ class AppEnvManager extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The private Android build is intentionally debuggable so logs remain
+    // available during real-device reliability testing, but the environment
+    // ribbon is developer chrome and should never cover the everyday UI.
+    if (system.isAndroid) {
+      return child;
+    }
     if (kDebugMode) {
       if (globalState.isPre) {
         return Banner(

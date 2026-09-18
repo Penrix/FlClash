@@ -71,6 +71,19 @@ class Request {
 
   Future<Map<String, dynamic>?> checkForUpdate() async {
     try {
+      if (isPenrixPrivateBuild) {
+        final response = await dio.get<List<dynamic>>(
+          'https://api.github.com/repos/$repository/releases',
+          queryParameters: {'per_page': 30},
+          options: Options(responseType: ResponseType.json),
+        );
+        if (response.statusCode != 200 || response.data == null) return null;
+        return selectPenrixPrivateUpdate(
+          response.data!,
+          currentRunNumber: penrixPrivateRunNumber,
+          currentRunAttempt: penrixPrivateRunAttempt,
+        );
+      }
       final response = await dio.get(
         'https://api.github.com/repos/$repository/releases/latest',
         options: Options(responseType: ResponseType.json),

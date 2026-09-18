@@ -70,6 +70,25 @@ Future<void> main(List<String> args) async {
   final targets = createPackageTargets(platform, results['targets']);
   final androidArch = results['arch'] as String?;
   final verbose = results['verbose'] as bool;
+  final penrixPrivate = results['penrix-private'] as bool;
+  final privateRunNumber = _parsePositiveInt(
+    results['private-run-number'] as String?,
+  );
+  final privateRunAttempt = _parsePositiveInt(
+    results['private-run-attempt'] as String?,
+  );
+
+  if (penrixPrivate &&
+      (privateRunNumber == null ||
+          privateRunNumber <= 0 ||
+          privateRunAttempt == null ||
+          privateRunAttempt <= 0)) {
+    stderr.writeln(
+      'Private builds require positive --private-run-number and '
+      '--private-run-attempt values.',
+    );
+    exit(1);
+  }
 
   final exitCode = await _package(
     platform,
@@ -78,6 +97,9 @@ Future<void> main(List<String> args) async {
     rootDir,
     arch,
     androidArch: androidArch,
+    penrixPrivate: penrixPrivate,
+    privateRunNumber: privateRunNumber,
+    privateRunAttempt: privateRunAttempt,
     verbose: verbose,
   );
   exit(exitCode);
@@ -107,7 +129,31 @@ ArgParser createSetupArgParser() {
       abbr: 'v',
       negatable: false,
       help: 'Enable verbose Flutter build output',
+    )
+    ..addFlag(
+      'penrix-private',
+      negatable: false,
+      help: 'Build the Penrix private distribution',
+    )
+    ..addOption(
+      'private-run-number',
+      valueHelp: 'number',
+      help: 'GitHub Actions run number for a private build',
+    )
+    ..addOption(
+      'private-run-attempt',
+      valueHelp: 'number',
+      help: 'GitHub Actions run attempt for a private build',
     );
+}
+
+int? _parsePositiveInt(String? value) {
+  if (value == null) return null;
+  final parsed = int.tryParse(value);
+  if (parsed == null || parsed <= 0) {
+    throw FormatException('Expected a positive integer, got "$value".');
+  }
+  return parsed;
 }
 
 List<String> createFlutterBuildArgs({
@@ -124,8 +170,29 @@ List<String> createFlutterBuildArgs({
   return flutterBuildArgs;
 }
 
-Map<String, String> createBuildEnvironment(String env) {
-  return {'APP_ENV': env};
+Map<String, String> createBuildEnvironment(
+  String env, {
+  bool penrixPrivate = false,
+  int? privateRunNumber,
+  int? privateRunAttempt,
+}) {
+  if (penrixPrivate &&
+      (privateRunNumber == null ||
+          privateRunNumber <= 0 ||
+          privateRunAttempt == null ||
+          privateRunAttempt <= 0)) {
+    throw ArgumentError(
+      'Private builds require positive run number and run attempt values.',
+    );
+  }
+  return {
+    'APP_ENV': env,
+    if (penrixPrivate) ...{
+      'PENRIX_PRIVATE_BUILD': 'true',
+      'PENRIX_PRIVATE_RUN_NUMBER': privateRunNumber.toString(),
+      'PENRIX_PRIVATE_RUN_ATTEMPT': privateRunAttempt.toString(),
+    },
+  };
 }
 
 /// Packages whose build hook `pubspec.yaml` turns into a no-op.
@@ -161,10 +228,22 @@ Future<int> _package(
   String rootDir,
   String arch, {
   String? androidArch,
+  required bool penrixPrivate,
+  int? privateRunNumber,
+  int? privateRunAttempt,
   required bool verbose,
 }) async {
   final file = File(p.join(rootDir, 'env.json'));
-  await file.writeAsString(jsonEncode(createBuildEnvironment(env)));
+  await file.writeAsString(
+    jsonEncode(
+      createBuildEnvironment(
+        env,
+        penrixPrivate: penrixPrivate,
+        privateRunNumber: privateRunNumber,
+        privateRunAttempt: privateRunAttempt,
+      ),
+    ),
+  );
 
   final flutterBuildArgs = createFlutterBuildArgs(
     platform: platform,
