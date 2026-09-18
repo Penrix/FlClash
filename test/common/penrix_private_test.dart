@@ -122,9 +122,7 @@ void main() {
       final windowsChatGptProcess = rules.indexOf(
         'PROCESS-NAME,ChatGPT.exe,Residential',
       );
-      final webSocket = rules.indexOf(
-        'DOMAIN,ws.chatgpt.com,Residential',
-      );
+      final webSocket = rules.indexOf('DOMAIN,ws.chatgpt.com,Residential');
       final adblock = rules.indexOf(
         'RULE-SET,$penrixAdblockProviderName,REJECT',
       );
@@ -162,14 +160,8 @@ void main() {
       );
 
       final rules = List<String>.from(config['rules'] as List);
-      expect(
-        rules,
-        contains('DOMAIN-SUFFIX,openai.com,Residential'),
-      );
-      expect(
-        rules,
-        contains('PROCESS-NAME,com.openai.chatgpt,Residential'),
-      );
+      expect(rules, contains('DOMAIN-SUFFIX,openai.com,Residential'));
+      expect(rules, contains('PROCESS-NAME,com.openai.chatgpt,Residential'));
       expect(rules, contains('DOMAIN-SUFFIX,github.com,Residential'));
     });
 
@@ -202,10 +194,7 @@ void main() {
         groups.where((group) => group['name'] == penrixChatGptGroupName),
         isEmpty,
       );
-      expect(
-        rules,
-        contains('PROCESS-NAME,com.openai.chatgpt,Residential'),
-      );
+      expect(rules, contains('PROCESS-NAME,com.openai.chatgpt,Residential'));
     });
 
     test('can keep raw rules untouched while preparing standard additions', () {
@@ -234,10 +223,7 @@ void main() {
       );
 
       expect(config['rules'], ['MATCH,DIRECT']);
-      expect(
-        addedRules.first,
-        'PROCESS-NAME,com.openai.chatgpt,Residential',
-      );
+      expect(addedRules.first, 'PROCESS-NAME,com.openai.chatgpt,Residential');
       expect(
         addedRules.indexOf('DOMAIN-SUFFIX,example.com,DIRECT'),
         greaterThan(addedRules.indexOf('DOMAIN-SUFFIX,openai.com,Residential')),
@@ -342,7 +328,7 @@ void main() {
 
       expect(
         merged.first,
-        'PROCESS-NAME,com.openai.chatgpt,$penrixChatGptGroupName',
+        'PROCESS-NAME,com.openai.chatgpt,Residential',
       );
       expect(
         merged.indexOf('RULE-SET,$penrixAdblockProviderName,REJECT'),
