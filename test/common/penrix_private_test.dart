@@ -326,10 +326,7 @@ void main() {
         routingRules: customRules,
       );
 
-      expect(
-        merged.first,
-        'PROCESS-NAME,com.openai.chatgpt,Residential',
-      );
+      expect(merged.first, 'PROCESS-NAME,com.openai.chatgpt,Residential');
       expect(
         merged.indexOf('RULE-SET,$penrixAdblockProviderName,REJECT'),
         lessThan(merged.indexOf('MATCH,DIRECT')),
