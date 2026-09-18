@@ -1,0 +1,23 @@
+name: temp-x-private-checkout-probe
+
+on:
+  push:
+    branches:
+      - temp-x-private-checkout-probe-20260918
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Try private source checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Penrix/desktop-tutorial
+          ref: codex/x-penrix-adult-bias-v3-20260917
+          path: private-source
+      - name: Confirm checkout
+        run: |
+          test -f private-source/.github/workflows/temp-x-transfer.yml
+          echo "PRIVATE_CHECKOUT_OK"
