@@ -207,11 +207,7 @@ List<String> buildPenrixPrivateRulePrefix(
   PenrixPrivateSettings settings = const PenrixPrivateSettings(),
 }) {
   final proxyTarget = inferPenrixProxyTarget(config, routingRules);
-  return _privateRulePrefix(
-    proxyTarget,
-    settings,
-    chatGptTarget: proxyTarget,
-  );
+  return _privateRulePrefix(proxyTarget, settings, chatGptTarget: proxyTarget);
 }
 
 String? inferPenrixProxyTarget(
