@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - penrix-android-antisleep
+      - penrix-red-gov-ui
   workflow_dispatch:
 
 concurrency:
@@ -60,6 +61,9 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Check private UI format
+        run: dart format --output=none --set-exit-if-changed lib/application.dart lib/pages/home.dart lib/views/dashboard/dashboard.dart
+
       - name: Analyze
         run: flutter analyze --no-fatal-infos
 
@@ -80,11 +84,11 @@ jobs:
         run: flutter build apk --release --target-platform android-arm64 --dart-define-from-file=env.json
 
       - name: Stage APK
-        run: cp build/app/outputs/flutter-apk/app-release.apk FlClash-Android-AntiSleep.apk
+        run: cp build/app/outputs/flutter-apk/app-release.apk FlClash-Red-Gov-UI.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: FlClash-Android-AntiSleep
-          path: FlClash-Android-AntiSleep.apk
+          name: FlClash-Red-Gov-UI
+          path: FlClash-Red-Gov-UI.apk
           if-no-files-found: error
