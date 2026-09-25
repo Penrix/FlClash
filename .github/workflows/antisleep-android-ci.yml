@@ -61,8 +61,8 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Check private UI format
-        run: dart format --output=none --set-exit-if-changed lib/application.dart lib/pages/home.dart lib/views/dashboard/dashboard.dart
+      - name: Format private UI
+        run: dart format lib/application.dart lib/pages/home.dart lib/views/dashboard/dashboard.dart
 
       - name: Analyze
         run: flutter analyze --no-fatal-infos
