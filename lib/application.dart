@@ -70,7 +70,40 @@ class ApplicationState extends ConsumerState<Application> {
   );
 
   ColorScheme _getAppColorScheme({required Brightness brightness}) {
-    return ref.read(genColorSchemeProvider(brightness));
+    const red = Color(0xFFBD1E24);
+    const gold = Color(0xFFD6A52B);
+    final base = ColorScheme.fromSeed(
+      seedColor: red,
+      brightness: brightness,
+    );
+    if (brightness == Brightness.dark) {
+      return base.copyWith(
+        primary: const Color(0xFFFF6B68),
+        onPrimary: const Color(0xFF5B0004),
+        primaryContainer: const Color(0xFF7A1015),
+        onPrimaryContainer: const Color(0xFFFFDAD6),
+        secondary: const Color(0xFFFFD36A),
+        onSecondary: const Color(0xFF402D00),
+        secondaryContainer: const Color(0xFF5C4300),
+        onSecondaryContainer: const Color(0xFFFFE6A6),
+        surface: const Color(0xFF1B1010),
+        surfaceContainer: const Color(0xFF261717),
+        surfaceContainerHigh: const Color(0xFF322020),
+      );
+    }
+    return base.copyWith(
+      primary: red,
+      onPrimary: Colors.white,
+      primaryContainer: const Color(0xFFFFE2DE),
+      onPrimaryContainer: const Color(0xFF790008),
+      secondary: gold,
+      onSecondary: const Color(0xFF3C2B00),
+      secondaryContainer: const Color(0xFFFFE9A9),
+      onSecondaryContainer: const Color(0xFF4F3900),
+      surface: const Color(0xFFFFF8F3),
+      surfaceContainer: const Color(0xFFFFF0E8),
+      surfaceContainerHigh: const Color(0xFFFFE8DE),
+    );
   }
 
   @override
