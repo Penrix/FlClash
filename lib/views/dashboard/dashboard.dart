@@ -574,7 +574,7 @@ class _PrivateServiceHero extends ConsumerWidget {
         }
 
         return Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(flex: 3, child: banner),
             const SizedBox(width: 14),
