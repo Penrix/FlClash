@@ -419,12 +419,6 @@ class VpnService : SystemVpnService(), ManagedService, VpnHealthSignalSink {
         if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return false
         if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return false
         if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return false
-        if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
-            !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
-        ) {
-            return false
-        }
         return true
     }
 
