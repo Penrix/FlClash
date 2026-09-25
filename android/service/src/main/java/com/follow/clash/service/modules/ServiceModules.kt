@@ -16,14 +16,18 @@ internal class ServiceModules(private val service: Service) {
     private var scope: CoroutineScope? = null
     private var modules = emptyList<ServiceModule>()
 
+    @Volatile
+    private var networkObserveModule: NetworkObserveModule? = null
+
     @Synchronized
     fun start() {
         if (scope != null) return
 
         val nextScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val nextNetworkObserveModule = NetworkObserveModule(service)
         val nextModules = listOf(
             NotificationModule(service, nextScope),
-            NetworkObserveModule(service),
+            nextNetworkObserveModule,
             SuspendModule(service, nextScope),
         )
         val startedModules = mutableListOf<ServiceModule>()
@@ -35,7 +39,9 @@ internal class ServiceModules(private val service: Service) {
             }
             scope = nextScope
             modules = nextModules
+            networkObserveModule = nextNetworkObserveModule
         } catch (error: Throwable) {
+            networkObserveModule = null
             nextScope.cancel()
             startedModules.asReversed().forEach { module ->
                 runCatching { module.stop() }
@@ -44,12 +50,17 @@ internal class ServiceModules(private val service: Service) {
         }
     }
 
+    fun refreshUnderlyingNetwork(reason: String) {
+        networkObserveModule?.refreshAfterSystemTransition(reason)
+    }
+
     @Synchronized
     fun stop() {
         val currentScope = scope ?: return
         val currentModules = modules
         scope = null
         modules = emptyList()
+        networkObserveModule = null
 
         currentScope.cancel()
         currentModules.asReversed().forEach { module ->
