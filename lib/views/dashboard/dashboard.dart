@@ -211,9 +211,9 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     ];
     return _buildIsEdit(
       (isEdit) => CommonScaffold(
-        title: context.appLocalizations.dashboard,
+        title: '网络服务大厅',
         actions: _buildActions(isEdit),
-        floatingActionButton: const StartButton(),
+        floatingActionButton: isEdit ? const StartButton() : null,
         body: Align(
           alignment: Alignment.topCenter,
           child: Builder(
@@ -225,34 +225,43 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                 alignment: Alignment.topCenter,
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: _maxGridWidth),
-                  child: LayoutBuilder(
-                    builder: (_, constraints) {
-                      final columns = switch (constraints.maxWidth) {
-                        < _mediumGridBreakpoint => _compactCrossAxisCount,
-                        <= _maxGridBreakpoint => _mediumCrossAxisCount,
-                        _ => _maxCrossAxisCount,
-                      };
-                      return isEdit
-                          ? BackLayerScope(
-                              onBack: _handleExitEdit,
-                              child: SuperGrid(
-                                key: key,
-                                crossAxisCount: columns,
-                                crossAxisSpacing: spacing,
-                                mainAxisSpacing: spacing,
-                                children: children,
-                                onUpdate: () {
-                                  _handleSave();
-                                },
-                              ),
-                            )
-                          : Grid(
-                              crossAxisCount: columns,
-                              crossAxisSpacing: spacing,
-                              mainAxisSpacing: spacing,
-                              children: children,
-                            );
-                    },
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (!isEdit) ...[
+                        const _PrivateServiceHero(),
+                        SizedBox(height: spacing),
+                      ],
+                      LayoutBuilder(
+                        builder: (_, constraints) {
+                          final columns = switch (constraints.maxWidth) {
+                            < _mediumGridBreakpoint => _compactCrossAxisCount,
+                            <= _maxGridBreakpoint => _mediumCrossAxisCount,
+                            _ => _maxCrossAxisCount,
+                          };
+                          return isEdit
+                              ? BackLayerScope(
+                                  onBack: _handleExitEdit,
+                                  child: SuperGrid(
+                                    key: key,
+                                    crossAxisCount: columns,
+                                    crossAxisSpacing: spacing,
+                                    mainAxisSpacing: spacing,
+                                    children: children,
+                                    onUpdate: () {
+                                      _handleSave();
+                                    },
+                                  ),
+                                )
+                              : Grid(
+                                  crossAxisCount: columns,
+                                  crossAxisSpacing: spacing,
+                                  mainAxisSpacing: spacing,
+                                  children: children,
+                                );
+                        },
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -354,6 +363,324 @@ class _AddedContainerState extends State<_AddedContainer> {
           ),
         ),
       ],
+    );
+  }
+}
+
+
+class _PrivateServiceHero extends ConsumerWidget {
+  const _PrivateServiceHero();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isStart = ref.watch(isStartProvider);
+    final runTime = ref.watch(runTimeProvider);
+    final suspend = ref.watch(suspendProvider);
+    final hasProfile = ref.watch(
+      profilesProvider.select((state) => state.isNotEmpty),
+    );
+    final colors = context.colorScheme;
+    final statusText = suspend
+        ? '专线休眠'
+        : isStart
+        ? '安全专线已连接'
+        : '专线待命';
+    final detailText = !hasProfile
+        ? '请先导入配置文件'
+        : isStart
+        ? '网络服务正在运行 · 稳定优先'
+        : '点击右侧开关启动网络服务';
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 720;
+        final banner = Container(
+          padding: EdgeInsets.all(isWide ? 28 : 20),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(28),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color(0xFFD9282F),
+                Color(0xFFB5121B),
+                Color(0xFF8F0710),
+              ],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF9C1118).withValues(alpha: 0.22),
+                blurRadius: 28,
+                offset: const Offset(0, 14),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 54,
+                    height: 54,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFD35A),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.7),
+                        width: 2,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.shield_rounded,
+                      color: Color(0xFFB5121B),
+                      size: 31,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '政务网络服务',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 26,
+                            height: 1.05,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 2.0,
+                          ),
+                        ),
+                        SizedBox(height: 6),
+                        Text(
+                          '私人实验网络 · 稳定连接未来',
+                          style: TextStyle(
+                            color: Color(0xFFFFE6B5),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(99),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.25),
+                      ),
+                    ),
+                    child: const Text(
+                      '民间测试版',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Container(
+                padding: const EdgeInsets.fromLTRB(18, 16, 14, 16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.96),
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: isStart
+                            ? const Color(0xFFFFE3DF)
+                            : const Color(0xFFF3F0ED),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        isStart
+                            ? Icons.verified_user_rounded
+                            : Icons.power_settings_new_rounded,
+                        color: isStart
+                            ? const Color(0xFFC2171D)
+                            : const Color(0xFF7A716B),
+                      ),
+                    ),
+                    const SizedBox(width: 13),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            statusText,
+                            style: const TextStyle(
+                              color: Color(0xFF281B18),
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            detailText,
+                            style: const TextStyle(
+                              color: Color(0xFF7B6C66),
+                              fontSize: 12,
+                            ),
+                          ),
+                          if (isStart && runTime != null) ...[
+                            const SizedBox(height: 5),
+                            DefaultTextStyle(
+                              style: const TextStyle(
+                                color: Color(0xFFC2171D),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              child: RunTimeText(timeStamp: runTime),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: isStart,
+                      onChanged: hasProfile
+                          ? (_) {
+                              ref
+                                  .read(commonActionProvider.notifier)
+                                  .toggleRunning();
+                            }
+                          : null,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              const _PrivateSloganStrip(),
+            ],
+          ),
+        );
+
+        if (!isWide) {
+          return banner;
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(flex: 3, child: banner),
+            const SizedBox(width: 14),
+            Expanded(
+              flex: 2,
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: colors.surfaceContainer,
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(
+                    color: colors.primary.withValues(alpha: 0.14),
+                  ),
+                ),
+                child: const Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.public_rounded,
+                      size: 52,
+                      color: Color(0xFFC2171D),
+                    ),
+                    SizedBox(height: 14),
+                    Text(
+                      '数字网络服务中心',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 21,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      '连接可靠 · 状态透明 · 配置自主',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Color(0xFF806F68),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _PrivateSloganStrip extends StatelessWidget {
+  const _PrivateSloganStrip();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _PrivateSloganDot(label: '私人实验'),
+        _PrivateSloganDivider(),
+        _PrivateSloganDot(label: '稳定优先'),
+        _PrivateSloganDivider(),
+        _PrivateSloganDot(label: '网络常青'),
+      ],
+    );
+  }
+}
+
+class _PrivateSloganDot extends StatelessWidget {
+  final String label;
+
+  const _PrivateSloganDot({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Flexible(
+      child: Text(
+        label,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: Colors.white.withValues(alpha: 0.9),
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
+  }
+}
+
+class _PrivateSloganDivider extends StatelessWidget {
+  const _PrivateSloganDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 9),
+      child: Container(
+        width: 4,
+        height: 4,
+        decoration: const BoxDecoration(
+          color: Color(0xFFFFD35A),
+          shape: BoxShape.circle,
+        ),
+      ),
     );
   }
 }
