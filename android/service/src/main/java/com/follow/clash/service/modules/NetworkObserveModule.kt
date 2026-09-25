@@ -221,11 +221,7 @@ internal class NetworkObserveModule(private val service: Service) : ServiceModul
         val network = selected?.key
         val capabilities = network?.let { connectivity?.getNetworkCapabilities(it) }
         val validated =
-            capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true &&
-                (
-                    Build.VERSION.SDK_INT < Build.VERSION_CODES.P ||
-                        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
-                    )
+            capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
         val description = if (network == null) "none" else describeNetwork(capabilities)
 
         if (
