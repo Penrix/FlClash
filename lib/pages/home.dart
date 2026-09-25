@@ -9,6 +9,32 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 typedef OnSelected = void Function(int index);
 
+String _privateNavLabel(PageLabel label) {
+  return switch (label) {
+    PageLabel.dashboard => '首页',
+    PageLabel.proxies => '节点',
+    PageLabel.profiles => '配置',
+    PageLabel.tools => '工具',
+    PageLabel.requests => '请求',
+    PageLabel.connections => '连接',
+    PageLabel.resources => '资源',
+    PageLabel.logs => '日志',
+  };
+}
+
+IconData _privateNavIcon(PageLabel label) {
+  return switch (label) {
+    PageLabel.dashboard => Icons.home_rounded,
+    PageLabel.proxies => Icons.hub_rounded,
+    PageLabel.profiles => Icons.folder_copy_rounded,
+    PageLabel.tools => Icons.build_circle_rounded,
+    PageLabel.requests => Icons.route_rounded,
+    PageLabel.connections => Icons.cable_rounded,
+    PageLabel.resources => Icons.storage_rounded,
+    PageLabel.logs => Icons.receipt_long_rounded,
+  };
+}
+
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
 
@@ -95,8 +121,8 @@ class _HomeShell extends ConsumerWidget {
                   destinations: [
                     for (final item in navigationItems)
                       NavigationDestination(
-                        icon: item.icon,
-                        label: item.label.label,
+                        icon: Icon(_privateNavIcon(item.label)),
+                        label: _privateNavLabel(item.label),
                       ),
                   ],
                   onDestinationSelected: (index) {
@@ -259,8 +285,8 @@ class _HomePageViewState extends ConsumerState<_HomePageView> {
 class _NavigationBarDefaultsM3 extends NavigationBarThemeData {
   _NavigationBarDefaultsM3(this.context)
     : super(
-        height: 80.0,
-        elevation: 3.0,
+        height: 76.0,
+        elevation: 10.0,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       );
 
@@ -269,7 +295,7 @@ class _NavigationBarDefaultsM3 extends NavigationBarThemeData {
   late final TextTheme _textTheme = Theme.of(context).textTheme;
 
   @override
-  Color? get backgroundColor => _colors.surfaceContainer;
+  Color? get backgroundColor => _colors.surface;
 
   @override
   Color? get shadowColor => Colors.transparent;
@@ -285,14 +311,14 @@ class _NavigationBarDefaultsM3 extends NavigationBarThemeData {
         color: states.contains(WidgetState.disabled)
             ? _colors.onSurfaceVariant.opacity38
             : states.contains(WidgetState.selected)
-            ? _colors.onSecondaryContainer
+            ? _colors.primary
             : _colors.onSurfaceVariant,
       );
     });
   }
 
   @override
-  Color? get indicatorColor => _colors.secondaryContainer;
+  Color? get indicatorColor => _colors.primaryContainer;
 
   @override
   ShapeBorder? get indicatorShape => AppShape.full;
@@ -306,7 +332,7 @@ class _NavigationBarDefaultsM3 extends NavigationBarThemeData {
         color: states.contains(WidgetState.disabled)
             ? _colors.onSurfaceVariant.opacity38
             : states.contains(WidgetState.selected)
-            ? _colors.onSurface
+            ? _colors.primary
             : _colors.onSurfaceVariant,
       );
     });
