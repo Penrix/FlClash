@@ -54,3 +54,9 @@ Read these only when the task touches their area:
 
 Use repo skills from `.agents/skills/` when a task matches their descriptions. Current skills cover localization,
 provider tests, UI work, and core/platform changes.
+
+## Penrix AI coding overlay
+
+For Penrix-owned work in this fork, also read [`PENRIX-CODING.md`](PENRIX-CODING.md) before making production-code changes.
+
+That overlay adds the non-programmer Owner / Coding Agent authority split, mandatory Reality Reconnaissance before coding, a POST Reality Audit against the actual final diff, evidence-backed complexity admission, and honest runtime evidence classes. It supplements the repository rules above and does not replace more specific architecture, build, security, testing, contribution, or release requirements.
